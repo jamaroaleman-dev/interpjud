@@ -1207,7 +1207,8 @@ routes.ajustes = async () => {
     const res = await rec.start();
     $("#mMeter").style.width = "0";
     const m = res.metrics;
-    live.textContent = `Transcripción: ${res.transcript || "(vacía)"}\nClaridad: ${m.confianza_asr != null ? Math.round(m.confianza_asr * 100) + "%" : "—"} · Ritmo: ${m.palabras_por_minuto ?? "—"} ppm · Detección de pausas: ${m.vad ? "sí" : "no"}${res.recError ? `\nError de reconocimiento: ${res.recError}` : ""}${res.audioError ? `\nError de audio: ${res.audioError}` : ""}`;
+    live.textContent = `Transcripción: ${res.transcript || "(vacía)"}\nClaridad: ${m.confianza_asr != null ? Math.round(m.confianza_asr * 100) + "%" : "—"} · Ritmo: ${m.palabras_por_minuto ?? "—"} ppm · Detección de pausas: ${m.vad ? "sí" : "no"}${navigator.onLine ? "" : `
+Modo sin internet: ${res.recMode}`}${res.recError ? `\nError de reconocimiento: ${res.recError}` : ""}${res.audioError ? `\nError de audio: ${res.audioError}` : ""}`;
     if (res.audio) { const a = document.createElement("audio"); a.controls = true; a.src = URL.createObjectURL(res.audio); a.style.width = "100%"; live.appendChild(document.createElement("br")); live.appendChild(a); }
   };
   $("#mTest").onclick = () => micTest("en");

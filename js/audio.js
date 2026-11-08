@@ -182,6 +182,14 @@ export async function localASRStatus(lang) {
   return "unknown";
 }
 const localReady = {};
+// Qué modo de reconocimiento sin internet funcionó la última vez por idioma: "local" (Chrome) o "system" (Android).
+const offlineMode = {};
+try { Object.assign(offlineMode, JSON.parse(localStorage.getItem("ij_offmode") || "{}")); } catch {}
+function rememberOffline(lang, mode) {
+  if (offlineMode[lang] === mode) return;
+  offlineMode[lang] = mode;
+  try { localStorage.setItem("ij_offmode", JSON.stringify(offlineMode)); } catch {}
+}
 export async function refreshLocalASR(langs) {
   if (!localASRSupported) return localReady;
   for (const l of langs) localReady[l] = await localASRStatus(l);
@@ -384,15 +392,33 @@ export class Recorder {
     return new Promise((resolve) => { this.resolve = resolve; });
   }
 
-  startRecognition() {
+  startRecognition(forceLocal) {
     const r = new SR();
     r.lang = this.lang;
     r.continuous = true;
     r.interimResults = true;
     r.maxAlternatives = 1;
-    // Sin internet: usar el reconocimiento en el dispositivo si el navegador lo permite.
-    if (!navigator.onLine && "processLocally" in r && localReady[this.lang] === "available") { try { r.processLocally = true; } catch {} }
+    // Sin internet: probar primero el modo que funcionó antes para este idioma; si falla, se cambia solo al otro.
+    const canLocal = "processLocally" in r;
+    if (forceLocal === undefined) {
+      const pref = offlineMode[this.lang];
+      forceLocal = !navigator.onLine && canLocal && (pref ? pref === "local" : localReady[this.lang] === "available");
+    }
+    if (forceLocal && canLocal) { try { r.processLocally = true; } catch {} }
+    this.recLocal = !!(forceLocal && canLocal);
+    this.recSwitched = this.recSwitched || false;
+    const tryOther = () => {
+      // Cambia una sola vez de modo (dispositivo ↔ sistema) cuando no hay internet.
+      if (this.recSwitched || this.stopped || navigator.onLine || !canLocal) return false;
+      this.recSwitched = true;
+      r.onend = r.onerror = r.onresult = null;
+      try { r.abort(); } catch {}
+      this.startRecognition(!this.recLocal);
+      return true;
+    };
+    this.recTryOther = tryOther;
     r.onresult = (e) => {
+      if (!navigator.onLine) rememberOffline(this.lang, this.recLocal ? "local" : "system");
       const now = performance.now();
       this.lastResultAt = now;
       if (!this.firstResultAt) this.firstResultAt = now;
@@ -411,6 +437,7 @@ export class Recorder {
     };
     r.onerror = (e) => {
       this.recError = e.error;
+      if (["network", "language-not-supported", "service-not-allowed", "bad-grammar"].includes(e.error) && tryOther()) { this.recError = null; return; }
       if (e.error === "not-allowed" || e.error === "service-not-allowed") this.recFatal = true;
     };
     r.onend = () => {
@@ -435,6 +462,8 @@ export class Recorder {
     const now = performance.now();
     const el = now - this.t0;
     let speaking = false;
+    // Sin internet y sin texto tras 4 s de voz: el modo de reconocimiento no sirve para este idioma; probar el otro.
+    if (!navigator.onLine && !this.firstResultAt && this.firstSpeechAt && now - this.firstSpeechAt > 4000 && !this.recSwitched && this.rec) this.recTryOther?.();
     if (this.analyser) {
       const lv = this.level();
       // Piso de ruido: el MÍNIMO observado al inicio (si la persona habla de inmediato, no se toma su voz como ruido).
@@ -507,6 +536,7 @@ export class Recorder {
       audio: blob,
       mime: this.mime,
       recError: this.recError,
+      recMode: navigator.onLine ? "online" : (this.recLocal ? "dispositivo (Chrome)" : "sistema (Android)"),
       audioError: this.audioError
     };
     this.resolve?.(result);
