@@ -1157,9 +1157,9 @@ routes.ajustes = async () => {
            <button class="btn sm" id="oTTS">⬇ Descargar voces para usar sin internet</button><div class="bar" style="margin-top:8px"><i id="oBar" style="width:0"></i></div><p class="small" id="oOut"></p>`
         : `<p class="muted small">Sin internet se usa la voz del teléfono. Para tener la voz natural sin conexión, activa Google Cloud arriba y vuelve aquí para descargarla.</p>`}
       <h3>2. Reconocimiento de voz sin internet</h3>
-      ${A.localASRSupported
-        ? `<p class="muted small">Tu navegador puede reconocer la voz en el dispositivo. Descarga los idiomas:</p><p class="small" id="aStat">Estado: comprobando…</p><button class="btn sm" id="aInst">⬇ Descargar reconocimiento (inglés y español)</button>`
-        : `<p class="muted small">Este navegador no anuncia reconocimiento en el dispositivo. En Android puede funcionar igual si descargas los idiomas en el teléfono: <b>Ajustes → Google → Ajustes de las apps de Google → Búsqueda, Asistente y voz → Voz → Reconocimiento de voz sin conexión</b> → descarga «English (US)» y «Español (Estados Unidos)». Luego activa el modo avión y usa «Probar micrófono» arriba para confirmarlo.</p>`}
+      <p class="muted small"><b>Android:</b> descarga los idiomas en <b>Ajustes → Google → Ajustes de las apps de Google → Búsqueda, Asistente y voz → Voz → Reconocimiento de voz sin conexión</b>: «English (US)» y «Español (EE.UU.)». Si un idioma sigue sin transcribir en modo avión, entra en <b>Voz → Idiomas</b> y marca también ese idioma (inglés y español): Google solo reconoce sin conexión los idiomas marcados ahí.</p>
+      <p class="muted small">Luego activa el modo avión y usa «Probar micrófono» (inglés y español) arriba para confirmarlo.</p>
+      ${A.localASRSupported ? `<details><summary class="small">Reconocimiento de Chrome (opcional)</summary><p class="small" id="aStat">Estado: comprobando…</p><button class="btn sm" id="aInst">⬇ Intentar descargar en Chrome</button></details>` : ""}
       <p class="muted small">Si sin internet no se obtiene transcripción, el app igual graba tu audio y mide pausas y ritmo, pero esa respuesta no podrá evaluarla Claude.</p>
       <h3>3. Evaluaciones pendientes</h3>
       <p class="small"><b id="pCount">${pendingCount()}</b> pendiente(s). Se evalúan solas al volver internet.</p>
@@ -1234,13 +1234,13 @@ Modo sin internet: ${res.recMode}`}${res.recError ? `\nError de reconocimiento: 
   }
   const aInst = $("#aInst");
   if (aInst) {
-    const showStat = async () => { const a = await A.localASRStatus(S.recEN), b = await A.localASRStatus(S.recES); $("#aStat").textContent = `Estado: inglés (${S.recEN}) → ${a}; español (${S.recES}) → ${b}`; };
+    const showStat = async () => { const a = await A.localASRStatus(S.recEN), b = await A.localASRStatus(S.recES); const tr = (x) => ({ available: "listo ✓", downloadable: "se puede descargar", downloading: "descargando…", unavailable: "no lo ofrece este teléfono" }[x] || x); $("#aStat").textContent = `Inglés: ${tr(a)} · Español: ${tr(b)}. Si dice «no lo ofrece», es normal: se usa el reconocimiento de Android.`; };
     showStat();
     aInst.onclick = async () => {
       aInst.disabled = true; $("#aStat").textContent = "Descargando… (puede tardar unos minutos)";
       const r1 = await A.installLocalASR(S.recEN), r2 = await A.installLocalASR(S.recES);
       await A.refreshLocalASR([S.recEN, S.recES]); await showStat();
-      if (!r1 || !r2) toast("Algún idioma no se pudo instalar. Prueba con es-US / en-US en «Reconocer como».", 6000);
+      if (!r1 || !r2) toast("Chrome no ofrece reconocimiento propio en este teléfono. No pasa nada: se usa el de Android (los idiomas descargados en Ajustes de Google).", 7000);
       aInst.disabled = false;
     };
   }

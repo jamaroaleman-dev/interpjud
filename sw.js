@@ -1,6 +1,6 @@
 // Service worker: el app completo funciona sin internet.
 // Estrategia: responde desde la caché al instante y actualiza en segundo plano cuando hay conexión.
-const CACHE = "interpjud-v7";
+const CACHE = "interpjud-v8";
 const FILES = [
   "./", "index.html", "manifest.webmanifest",
   "js/app.js", "js/audio.js", "js/ai.js", "js/content.js", "js/drills.js", "js/criterios.js", "js/modulos.js", "js/banco2.js",
