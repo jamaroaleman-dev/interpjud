@@ -1238,7 +1238,7 @@ routes.ajustes = async () => {
     aInst.onclick = async () => {
       aInst.disabled = true; $("#aStat").textContent = "Descargando… (puede tardar unos minutos)";
       const r1 = await A.installLocalASR(S.recEN), r2 = await A.installLocalASR(S.recES);
-      await showStat();
+      await A.refreshLocalASR([S.recEN, S.recES]); await showStat();
       if (!r1 || !r2) toast("Algún idioma no se pudo instalar. Prueba con es-US / en-US en «Reconocer como».", 6000);
       aInst.disabled = false;
     };
@@ -1289,5 +1289,6 @@ A.loadVoices().then(() => setTimeout(() => {
 }, 1500));
 // Limpiar audios viejos (conservar los de los últimos 40 ejercicios).
 setTimeout(processPending, 3000);
+A.refreshLocalASR([S.recEN, S.recES]);
 A.pruneAudio([...HIST.filter((h) => h.pendingEval), ...HIST.slice(-40)].flatMap((h) => (h.segmentos || []).map((s) => s.audioId).filter(Boolean)));
 render();

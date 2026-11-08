@@ -181,6 +181,15 @@ export async function localASRStatus(lang) {
   } catch {}
   return "unknown";
 }
+const localReady = {};
+export async function refreshLocalASR(langs) {
+  if (!localASRSupported) return localReady;
+  for (const l of langs) localReady[l] = await localASRStatus(l);
+  try { localStorage.setItem("ij_localasr", JSON.stringify(localReady)); } catch {}
+  return localReady;
+}
+try { Object.assign(localReady, JSON.parse(localStorage.getItem("ij_localasr") || "{}")); } catch {}
+
 export async function installLocalASR(lang) {
   try {
     if (typeof SR.install === "function") return await SR.install({ langs: [lang], processLocally: true });
@@ -382,7 +391,7 @@ export class Recorder {
     r.interimResults = true;
     r.maxAlternatives = 1;
     // Sin internet: usar el reconocimiento en el dispositivo si el navegador lo permite.
-    if (!navigator.onLine && "processLocally" in r) { try { r.processLocally = true; } catch {} }
+    if (!navigator.onLine && "processLocally" in r && localReady[this.lang] === "available") { try { r.processLocally = true; } catch {} }
     r.onresult = (e) => {
       const now = performance.now();
       this.lastResultAt = now;
