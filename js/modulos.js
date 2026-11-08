@@ -166,12 +166,14 @@ function quizPool(k, dir, n) {
   const m = MODO[k];
   const gen = CRIT_SETS[k]?.quiz || [];
   let pool;
-  if (m.quiz === "glosario") pool = [...autoQuiz("glosario", dir === "mix" ? (Math.random() < 0.5 ? "en" : "es") : dir, n * 2), ...autoQuiz("glosario", dir === "mix" ? "es" : dir, n)];
-  else if (m.quiz === "modismos") pool = [...autoQuiz("modismos", dir, n * 2), ...gen];
+  if (m.quiz === "glosario") pool = [...autoQuiz("glosario", dir === "mix" ? "en" : dir, n), ...autoQuiz("glosario", dir === "mix" ? "es" : dir, n), ...(QUIZ[k] || []), ...(QUIZ[k] || []), ...gen];
+  else if (m.quiz === "modismos") pool = [...autoQuiz("modismos", dir, n * 2), ...(QUIZ[k] || []), ...(QUIZ[k] || []), ...gen];
   else pool = [...(QUIZ[k] || []), ...gen];
   if (dir !== "mix") pool = pool.filter((q) => q.d === dir);
   // mezclar opciones
-  return shuffle(pool).slice(0, n).map((q) => {
+  const seen = new Set();
+  pool = shuffle(pool).filter((q) => (seen.has(q.q) ? false : seen.add(q.q)));
+  return pool.slice(0, n).map((q) => {
     const idx = shuffle(q.o.map((_, i) => i));
     return { ...q, o: idx.map((i) => q.o[i]), c: idx.indexOf(q.c) };
   });

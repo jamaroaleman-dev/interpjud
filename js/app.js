@@ -1,3 +1,4 @@
+import "./banco2.js"; // banco ampliado (se fusiona con los bancos base)
 import { DIALOGOS, DISCURSOS, VISTAS, GLOSARIO, MODISMOS, ESCENARIOS } from "./content.js";
 import * as A from "./audio.js";
 import { CRITERIOS, MODELS, evaluate, generate, testKey } from "./ai.js";
