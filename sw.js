@@ -1,5 +1,5 @@
 // Service worker: cache del app para abrir sin conexión (la IA y el reconocimiento de voz sí necesitan internet).
-const CACHE = "interpjud-v1";
+const CACHE = "interpjud-v2";
 const FILES = ["./", "index.html", "js/app.js", "js/audio.js", "js/ai.js", "js/content.js", "js/drills.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => {

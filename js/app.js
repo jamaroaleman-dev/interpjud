@@ -1035,7 +1035,7 @@ function lineChart(vals) {
 routes.ajustes = async () => {
   setTitle("Ajustes");
   await A.loadVoices();
-  const vopts = (lang, sel) => `<option value="">Automática (mejor disponible)</option>` + A.voicesFor(lang).map((v) => `<option ${v.name === sel ? "selected" : ""} value="${esc(v.name)}">${esc(v.name)} (${v.lang})</option>`).join("");
+  const vopts = (lang, sel) => `<option value="">Automática (${lang === "en" ? "inglés americano" : "español neutro"})</option>` + A.accentVoices(lang).map((v) => `<option ${v.name === sel ? "selected" : ""} value="${esc(v.name)}">${esc(v.name)} (${v.lang})</option>`).join("");
   view.innerHTML = `
     <div class="card"><h2>Claude (evaluación y ejercicios nuevos)</h2>
       <label class="f"><span>API key de Anthropic</span><input type="password" id="kKey" value="${esc(S.apiKey)}" placeholder="sk-ant-…" autocomplete="off"></label>
@@ -1121,7 +1121,17 @@ function applyTheme() {
 
 // ====================== Arranque ======================
 applyTheme();
-A.loadVoices();
+// Fijar una sola voz por idioma (inglés americano, español neutro) y recordarla siempre.
+A.loadVoices().then(() => setTimeout(() => {
+  let changed = false;
+  for (const [lang, key] of [["en", "voiceEN"], ["es", "voiceES"]]) {
+    if (!S[key] || !A.voicesFor(lang).some((v) => v.name === S[key])) {
+      const v = A.pickVoice(lang);
+      if (v) { S[key] = v.name; changed = true; }
+    }
+  }
+  if (changed) saveSettings();
+}, 1500));
 // Limpiar audios viejos (conservar los de los últimos 40 ejercicios).
 A.pruneAudio(HIST.slice(-40).flatMap((h) => (h.segmentos || []).map((s) => s.audioId).filter(Boolean)));
 render();

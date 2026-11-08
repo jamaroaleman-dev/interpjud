@@ -24,29 +24,44 @@ export function loadVoices() {
   });
 }
 
+const vlang = (v) => (v.lang || "").toLowerCase().replace("_", "-");
+
 export function voicesFor(lang) {
-  return voicesCache.filter((v) => v.lang && v.lang.toLowerCase().startsWith(lang));
+  return voicesCache.filter((v) => vlang(v).startsWith(lang));
 }
+
+// Acentos permitidos: inglés americano; español neutro latinoamericano (EE. UU./México/419), España solo como último recurso.
+const ACCENTS = { en: ["en-us"], es: ["es-us", "es-mx", "es-419", "es-do", "es-co"] };
 
 function scoreVoice(v, lang) {
   let s = 0;
   const n = (v.name || "").toLowerCase();
   if (/natural|neural|online|premium|enhanced/.test(n)) s += 5;
   if (/google/.test(n)) s += 3;
-  const l = v.lang.toLowerCase();
-  if (lang === "es" && /es-(do|us|mx|419)/.test(l)) s += 2;
-  if (lang === "en" && /en-us/.test(l)) s += 2;
-  if (v.localService === false) s += 1;
+  const idx = ACCENTS[lang].indexOf(vlang(v));
+  if (idx >= 0) s += 20 - idx; // el acento manda sobre la calidad
   return s;
 }
 
+// Devuelve SIEMPRE la misma voz para un idioma (estable entre ejercicios y repeticiones).
+const locked = {};
 export function pickVoice(lang, preferredName) {
   const list = voicesFor(lang);
   if (preferredName) {
     const p = list.find((v) => v.name === preferredName);
     if (p) return p;
   }
-  return list.sort((a, b) => scoreVoice(b, lang) - scoreVoice(a, lang))[0] || null;
+  const l = locked[lang] && list.find((v) => v.name === locked[lang]);
+  if (l) return l;
+  const best = [...list].sort((a, b) => scoreVoice(b, lang) - scoreVoice(a, lang) || a.name.localeCompare(b.name))[0] || null;
+  if (best) locked[lang] = best.name;
+  return best;
+}
+
+// Voces con el acento permitido (para el selector de Ajustes).
+export function accentVoices(lang) {
+  const ok = voicesFor(lang).filter((v) => ACCENTS[lang].includes(vlang(v)));
+  return ok.length ? ok : voicesFor(lang);
 }
 
 let keepAlive = null;
@@ -57,13 +72,19 @@ export function stopSpeaking() {
 }
 
 // Habla un texto. Devuelve {start, end} en ms (performance.now()).
-export function speak(text, lang, { rate = 1, voiceName, onBoundary, signal } = {}) {
+export async function speak(text, lang, opts = {}) {
+  // Si las voces aún no cargaron (común en Android), esperarlas: si no, el sistema usa una voz al azar.
+  if (hasTTS && !voicesCache.length) await loadVoices();
+  return speakNow(text, lang, opts);
+}
+
+function speakNow(text, lang, { rate = 1, voiceName, onBoundary, signal } = {}) {
   return new Promise((resolve) => {
     if (!hasTTS) return resolve({ start: performance.now(), end: performance.now(), skipped: true });
     const u = new SpeechSynthesisUtterance(text);
     const v = pickVoice(lang, voiceName);
     if (v) u.voice = v;
-    u.lang = v?.lang || (lang === "es" ? "es-DO" : "en-US");
+    u.lang = v?.lang || (lang === "es" ? "es-US" : "en-US");
     u.rate = rate;
     let start = performance.now();
     let done = false;
