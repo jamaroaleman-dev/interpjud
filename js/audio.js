@@ -66,13 +66,132 @@ export function accentVoices(lang) {
 
 let keepAlive = null;
 export function stopSpeaking() {
+  try { player?.pause(); player?.dispatchEvent(new Event("ended")); } catch {}
   if (!hasTTS) return;
   clearInterval(keepAlive);
   speechSynthesis.cancel();
 }
 
+// ---------------- Voces naturales: Google Cloud Text-to-Speech ----------------
+export const GOOGLE_VOICES = {
+  en: [
+    ["en-US-Chirp3-HD-Charon", "Charon · hombre (Chirp 3 HD, la más natural)"],
+    ["en-US-Chirp3-HD-Kore", "Kore · mujer (Chirp 3 HD, la más natural)"],
+    ["en-US-Chirp3-HD-Puck", "Puck · hombre (Chirp 3 HD)"],
+    ["en-US-Chirp3-HD-Aoede", "Aoede · mujer (Chirp 3 HD)"],
+    ["en-US-Neural2-J", "Neural2-J · hombre"],
+    ["en-US-Neural2-F", "Neural2-F · mujer"],
+    ["en-US-Neural2-D", "Neural2-D · hombre"]
+  ],
+  es: [
+    ["es-US-Chirp3-HD-Charon", "Charon · hombre (Chirp 3 HD, la más natural)"],
+    ["es-US-Chirp3-HD-Kore", "Kore · mujer (Chirp 3 HD, la más natural)"],
+    ["es-US-Chirp3-HD-Puck", "Puck · hombre (Chirp 3 HD)"],
+    ["es-US-Chirp3-HD-Aoede", "Aoede · mujer (Chirp 3 HD)"],
+    ["es-US-Neural2-B", "Neural2-B · hombre"],
+    ["es-US-Neural2-A", "Neural2-A · mujer"],
+    ["es-US-Neural2-C", "Neural2-C · hombre"]
+  ]
+};
+let tts = { provider: "browser", key: "", en: GOOGLE_VOICES.en[0][0], es: GOOGLE_VOICES.es[0][0], onError: null };
+export function configureTTS(cfg) { tts = { ...tts, ...cfg }; }
+const useGoogle = () => tts.provider === "google" && !!tts.key;
+
+const memCache = new Map();
+async function ttsCacheGet(k) {
+  if (memCache.has(k)) return memCache.get(k);
+  try {
+    const d = await db();
+    const blob = await new Promise((res) => { const r = d.transaction("tts").objectStore("tts").get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); });
+    if (blob) memCache.set(k, blob);
+    return blob;
+  } catch { return null; }
+}
+async function ttsCachePut(k, blob) {
+  memCache.set(k, blob);
+  try { const d = await db(); d.transaction("tts", "readwrite").objectStore("tts").put(blob, k); } catch {}
+}
+
+const inflight = new Map();
+function googleAudio(text, lang, rate) {
+  const voice = tts[lang];
+  const key = `${voice}|${rate}|${text}`;
+  if (inflight.has(key)) return inflight.get(key);
+  const p = (async () => {
+    const cached = await ttsCacheGet(key);
+    if (cached) return cached;
+    const call = async (withRate) => {
+      const body = { input: { text }, voice: { languageCode: lang === "en" ? "en-US" : "es-US", name: voice }, audioConfig: { audioEncoding: "MP3", ...(withRate ? { speakingRate: rate } : {}) } };
+      const r = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(tts.key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { const e = new Error(j.error?.message || `Google TTS ${r.status}`); e.status = r.status; throw e; }
+      return j.audioContent;
+    };
+    let b64;
+    try { b64 = await call(rate !== 1); }
+    catch (e) { if (rate !== 1 && e.status === 400) b64 = await call(false); else throw e; }
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "audio/mpeg" });
+    await ttsCachePut(key, blob);
+    return blob;
+  })();
+  inflight.set(key, p);
+  p.finally(() => inflight.delete(key));
+  return p;
+}
+
+// Pre-carga una frase (para que no haya silencios entre oraciones).
+export function prefetch(text, lang, rate = 1) {
+  if (useGoogle() && text) googleAudio(text, lang, rate).catch(() => {});
+}
+
+let player = null;
+export function unlockAudio() {
+  try {
+    player ||= new Audio();
+    // WAV silencioso generado (desbloquea la reproducción en móviles dentro del gesto del usuario).
+    const n = 800, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    player.src = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+    player.volume = 0;
+    player.play().then(() => { player.pause(); player.volume = 1; }).catch(() => { player.volume = 1; });
+  } catch {}
+}
+
+function playBlob(blob, signal) {
+  return new Promise((resolve) => {
+    player ||= new Audio();
+    const url = URL.createObjectURL(blob);
+    let start = performance.now(), done = false;
+    const finish = () => { if (done) return; done = true; player.onended = player.onerror = player.onplaying = null; URL.revokeObjectURL(url); resolve({ start, end: performance.now() }); };
+    player.onplaying = () => { start = performance.now(); };
+    player.onended = finish;
+    player.onerror = finish;
+    player.addEventListener("ended", finish, { once: true });
+    if (signal) signal.addEventListener("abort", () => { player.pause(); finish(); }, { once: true });
+    player.src = url;
+    player.volume = 1;
+    player.play().catch(finish);
+  });
+}
+
 // Habla un texto. Devuelve {start, end} en ms (performance.now()).
 export async function speak(text, lang, opts = {}) {
+  if (useGoogle()) {
+    try {
+      const blob = await googleAudio(text, lang, opts.rate || 1);
+      if (opts.signal?.aborted) return { start: performance.now(), end: performance.now() };
+      return await playBlob(blob, opts.signal);
+    } catch (e) {
+      tts.onError?.(e);
+      // Respaldo: voz del navegador.
+    }
+  }
   // Si las voces aún no cargaron (común en Android), esperarlas: si no, el sistema usa una voz al azar.
   if (hasTTS && !voicesCache.length) await loadVoices();
   return speakNow(text, lang, opts);
@@ -417,8 +536,12 @@ let dbp = null;
 function db() {
   if (dbp) return dbp;
   dbp = new Promise((res, rej) => {
-    const req = indexedDB.open("interpjud", 1);
-    req.onupgradeneeded = () => req.result.createObjectStore("audio");
+    const req = indexedDB.open("interpjud", 2);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("audio")) d.createObjectStore("audio");
+      if (!d.objectStoreNames.contains("tts")) d.createObjectStore("tts");
+    };
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
   });

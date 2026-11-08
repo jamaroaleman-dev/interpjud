@@ -2,6 +2,7 @@ import { DIALOGOS, DISCURSOS, VISTAS, GLOSARIO, MODISMOS, ESCENARIOS } from "./c
 import * as A from "./audio.js";
 import { CRITERIOS, MODELS, evaluate, generate, testKey } from "./ai.js";
 import { makeItem, checkItem, termMatch } from "./drills.js";
+import { initModulos, critSummaryHTML } from "./modulos.js";
 
 // ====================== Estado y almacenamiento ======================
 const LS = {
@@ -15,8 +16,18 @@ const DEFAULTS = {
   recES: "es-DO", recEN: "en-US", useAudio: !A.isAndroid, silenceSec: 3, prepSec: 30,
   showText: false, allowRepeat: true, nivel: 2
 };
-let S = { ...DEFAULTS, ...LS.get("settings", {}) };
-const saveSettings = () => LS.set("settings", S);
+let S = { ...DEFAULTS, ttsProvider: "browser", googleKey: "", gVoiceEN: A.GOOGLE_VOICES.en[0][0], gVoiceES: A.GOOGLE_VOICES.es[0][0], ...LS.get("settings", {}) };
+// Migración: volver a elegir la mejor voz del navegador (prioriza voces «Natural»).
+if (S.voiceVer !== 2) { S.voiceEN = ""; S.voiceES = ""; S.voiceVer = 2; LS.set("settings", S); }
+let ttsWarned = false;
+function applyTTS() {
+  A.configureTTS({
+    provider: S.ttsProvider, key: S.googleKey, en: S.gVoiceEN, es: S.gVoiceES,
+    onError: (e) => { if (!ttsWarned) { ttsWarned = true; toast("Voz de Google no disponible (" + e.message + "). Usando la voz del navegador.", 6000); } }
+  });
+}
+const saveSettings = () => { LS.set("settings", S); applyTTS(); };
+applyTTS();
 
 let HIST = LS.get("history", []);
 const saveHist = () => { HIST = HIST.slice(-300); LS.set("history", HIST); };
@@ -67,6 +78,7 @@ async function keepAwake(on) {
 // Desbloquea audio en iOS/Android dentro del gesto del usuario.
 function primeAudio() {
   try { A.beep(1, 1, 0.0001); } catch {}
+  A.unlockAudio();
   try { if (A.hasTTS) { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } } catch {}
 }
 
@@ -147,7 +159,8 @@ routes.home = () => {
     ["simul", "1 discurso de simultánea", "#simul"],
     ["vista", "1 traducción a la vista", "#vista"],
     ["numeros", "1 ronda de números, nombres y fechas", "#numeros"],
-    ["terminos", "1 ronda de terminología", "#terminos"]
+    ["terminos", "1 ronda de terminología", "#terminos"],
+    ["criterios", "1 práctica o evaluación de un criterio", "#criterios"]
   ];
   const weak = weakest();
   view.innerHTML = `
@@ -165,6 +178,12 @@ routes.home = () => {
       <h2>Simulacro del examen</h2>
       <p class="muted small" style="margin:0 0 10px">Consecutiva + simultánea + traducción a la vista, de corrido (~20–30 min), con evaluación completa sobre 100.</p>
       <button class="btn primary block" onclick="location.hash='#simulacro'">▶ Hacer un simulacro</button>
+    </div>
+
+    <div class="card">
+      <h2>Los 10 criterios del oral</h2>
+      <p class="muted small" style="margin:0 0 10px">Práctica y evaluación individual de cada aspecto: gramática, vocabulario, fluidez, pronunciación, comprensión, terminología, interferencias, números, modismos y registro.</p>
+      <button class="btn block" onclick="location.hash='#criterios'">📋 Ir a los 10 criterios</button>
     </div>
 
     <div class="grid">
@@ -513,6 +532,7 @@ async function runConsec(part, sess, ui, segs, exam) {
       const sp = await A.speak(t.texto, t.idioma, { rate: rateOf(t.idioma), voiceName: voiceOf(t.idioma), signal: sess.ctrl.signal });
       if (sess.aborted) return;
       dur = (sp.end - sp.start) / 1000;
+      if (turns[i + 1]) A.prefetch(turns[i + 1].texto, turns[i + 1].idioma, rateOf(turns[i + 1].idioma));
       A.beep();
       let wantRepeat = false;
       const canRepeat = S.allowRepeat && repeats < 1;
@@ -561,9 +581,11 @@ async function runSimul(part, sess, ui, segs, exam) {
   $("#stopBtn").onclick = () => { manual = true; A.stopSpeaking(); rec.stop("manual"); };
   const sentences = A.splitSentences(part.texto);
   let ttsStart = null, ttsEnd = null;
+  A.prefetch(sentences[0], from, rateOf(from));
   for (let i = 0; i < sentences.length; i++) {
     if (sess.aborted || manual) break;
     ui.prog(`Oración ${i + 1}/${sentences.length}`);
+    if (sentences[i + 1]) A.prefetch(sentences[i + 1], from, rateOf(from));
     const sp = await A.speak(sentences[i], from, { rate: rateOf(from), voiceName: voiceOf(from), signal: sess.ctrl.signal });
     ttsStart ??= sp.start;
     ttsEnd = sp.end;
@@ -987,6 +1009,7 @@ routes.progreso = () => {
       const cls = v >= 4.7 ? "good" : v >= 4 ? "warn" : "bad";
       return `<div class="crit"><span class="n">${name}</span><span class="v" style="color:var(--${cls})">${v.toFixed(1)}</span><div class="bar"><i style="width:${v * 20}%;background:var(--${cls})"></i></div></div>`;
     }).join("")}</div>` : ""}
+    ${critSummaryHTML()}
     <div class="card"><h2>Historial</h2><div class="list">
       ${[...HIST].reverse().slice(0, 80).map((h) => `<button class="item" data-id="${h.id}" ${h.segmentos?.length ? "" : "disabled style='cursor:default'"}><div class="grow"><div class="t">${esc(h.titulo)}</div><div class="d">${esc(h.tipoLabel)} · ${fmtDate(h.date)} · ${Math.round(h.minutos || 0)} min</div></div>${h.nota100 != null ? `<span class="pill ${scoreClass(h.nota100)}">${h.nota100}</span>` : h.drillPct != null ? `<span class="pill">${h.drillPct}%</span>` : `<span class="pill">sin nota</span>`}</button>`).join("") || `<p class="muted">Aún no hay práctica registrada.</p>`}
     </div></div>
@@ -1050,13 +1073,33 @@ routes.ajustes = async () => {
       </div>
     </div>
     <div class="card"><h2>Voces del app</h2>
+      <label class="f"><span>Motor de voz</span><select id="tProv">
+        <option value="browser" ${S.ttsProvider !== "google" ? "selected" : ""}>Voces del navegador (gratis, calidad variable)</option>
+        <option value="google" ${S.ttsProvider === "google" ? "selected" : ""}>Google Cloud – voces naturales (recomendado)</option>
+      </select></label>
+      <div id="gBox" style="display:${S.ttsProvider === "google" ? "block" : "none"}">
+        <label class="f"><span>API key de Google Cloud (Text-to-Speech)</span><input type="password" id="gKey" value="${esc(S.googleKey)}" placeholder="AIza…" autocomplete="off"></label>
+        <details style="margin:0 0 10px"><summary class="small">Cómo obtenerla (5 min, gratis hasta 1 millón de caracteres al mes)</summary>
+          <ol class="small" style="padding-left:20px;margin:8px 0">
+            <li>Entra a <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> con tu cuenta de Google y crea un proyecto (p. ej. «interpjud»).</li>
+            <li>Activa la facturación (pide tarjeta, pero el uso de práctica cabe en el nivel gratis).</li>
+            <li>Busca <b>Cloud Text-to-Speech API</b> y pulsa <b>Habilitar</b>.</li>
+            <li>Ve a <b>APIs y servicios → Credenciales → Crear credenciales → Clave de API</b>.</li>
+            <li>En la clave: <b>Restricciones de API</b> → solo «Cloud Text-to-Speech API»; <b>Restricciones de aplicación</b> → sitios web → <code>jamaroaleman-dev.github.io/*</code>.</li>
+            <li>Copia la clave y pégala aquí. Repite el paso en el celular (o pégala ahí también).</li>
+          </ol></details>
+        <label class="f"><span>Voz natural en inglés (americano)</span><select id="gEN">${A.GOOGLE_VOICES.en.map(([id, l]) => `<option value="${id}" ${id === S.gVoiceEN ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="f"><span>Voz natural en español (neutro)</span><select id="gES">${A.GOOGLE_VOICES.es.map(([id, l]) => `<option value="${id}" ${id === S.gVoiceES ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      </div>
+      <div id="bBox" style="display:${S.ttsProvider === "google" ? "none" : "block"}">
       ${!A.hasTTS ? `<div class="err">Este navegador no tiene síntesis de voz.</div>` : ""}
-      <label class="f"><span>Voz en español</span><select id="vES">${vopts("es", S.voiceES)}</select></label>
-      <label class="f"><span>Velocidad español: <b id="rESv">${S.rateES}</b>×</span><input type="range" id="rES" min="0.7" max="1.4" step="0.05" value="${S.rateES}"></label>
       <label class="f"><span>Voz en inglés</span><select id="vEN">${vopts("en", S.voiceEN)}</select></label>
+      <label class="f"><span>Voz en español</span><select id="vES">${vopts("es", S.voiceES)}</select></label>
+      <p class="muted small">Gratis y más naturales: en PC abre el app en <b>Microsoft Edge</b> y elige una voz «Online (Natural)» (Aria, Jenny, Guy / Paloma, Alonso).</p>
+      </div>
       <label class="f"><span>Velocidad inglés: <b id="rENv">${S.rateEN}</b>×</span><input type="range" id="rEN" min="0.7" max="1.4" step="0.05" value="${S.rateEN}"></label>
-      <div class="row"><button class="btn sm" id="tES">🔊 Probar español</button><button class="btn sm" id="tEN">🔊 Probar inglés</button></div>
-      <p class="muted small">En PC, Microsoft Edge tiene las voces más naturales («Natural/Online»). En Android, instala voces de alta calidad en Ajustes → Texto a voz.</p>
+      <label class="f"><span>Velocidad español: <b id="rESv">${S.rateES}</b>×</span><input type="range" id="rES" min="0.7" max="1.4" step="0.05" value="${S.rateES}"></label>
+      <div class="row"><button class="btn sm" id="tEN">🔊 Probar inglés</button><button class="btn sm" id="tES">🔊 Probar español</button><span class="small" id="tOut"></span></div>
     </div>
     <div class="card"><h2>Micrófono y reconocimiento</h2>
       ${!A.hasRecognition ? `<div class="err">Este navegador no tiene reconocimiento de voz. Usa Chrome, Edge o Safari.</div>` : ""}
@@ -1086,8 +1129,16 @@ routes.ajustes = async () => {
     const r = $("#r" + l);
     r.oninput = () => { S["rate" + l] = +r.value; $(`#r${l}v`).textContent = r.value; saveSettings(); };
   }
-  $("#tES").onclick = () => { A.stopSpeaking(); A.speak("Se abre la audiencia. El Ministerio Público solicita tres meses de prisión preventiva contra el imputado.", "es", { rate: S.rateES, voiceName: S.voiceES }); };
-  $("#tEN").onclick = () => { A.stopSpeaking(); A.speak("Your Honor, I had no clue what was in that bag. I've never been in trouble with the law.", "en", { rate: S.rateEN, voiceName: S.voiceEN }); };
+  bind("#gKey", "googleKey", (el) => el.value.trim());
+  bind("#gEN", "gVoiceEN"); bind("#gES", "gVoiceES");
+  $("#tProv").onchange = () => {
+    S.ttsProvider = $("#tProv").value; saveSettings(); ttsWarned = false;
+    $("#gBox").style.display = S.ttsProvider === "google" ? "block" : "none";
+    $("#bBox").style.display = S.ttsProvider === "google" ? "none" : "block";
+  };
+  for (const id of ["#gKey", "#gEN", "#gES"]) $(id).addEventListener("change", () => { ttsWarned = false; });
+  $("#tES").onclick = () => { primeAudio(); A.stopSpeaking(); A.speak("Se abre la audiencia. El Ministerio Público solicita tres meses de prisión preventiva contra el imputado.", "es", { rate: S.rateES, voiceName: S.voiceES }); };
+  $("#tEN").onclick = () => { primeAudio(); A.stopSpeaking(); A.speak("Your Honor, I had no clue what was in that bag. I've never been in trouble with the law.", "en", { rate: S.rateEN, voiceName: S.voiceEN }); };
   $("#kTest").onclick = async () => {
     S.apiKey = $("#kKey").value.trim(); saveSettings();
     $("#kOut").textContent = "Probando…";
@@ -1120,6 +1171,10 @@ function applyTheme() {
 }
 
 // ====================== Arranque ======================
+initModulos({
+  S, LS, $, view, esc, uid, toast, setTitle, go, routes, recordTurn, Session, stageHTML, ensureMic, primeAudio, keepAwake,
+  logDaily, voiceOf, rateOf, other, scoreClass, saveSettings, setCurrent: (s) => { current = s; }
+});
 applyTheme();
 // Fijar una sola voz por idioma (inglés americano, español neutro) y recordarla siempre.
 A.loadVoices().then(() => setTimeout(() => {

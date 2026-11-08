@@ -184,6 +184,49 @@ Escenario: ${esc}. Nivel: ${NIVEL[nivel]}. Entre ${nivel === 1 ? "90 y 130" : ni
   return callJSON({ settings, system: GEN_SYSTEM, user, schema, maxTokens: 8000, effort: "low", onProgress });
 }
 
+// ---------------- Módulos por criterio ----------------
+const CRIT_EVAL_SCHEMA = obj({
+  nota: int,
+  comentario: str,
+  items: arr(obj({ indice: int, nota: int, problema: str, sugerido: str })),
+  consejos: arr(str)
+});
+
+export async function evaluateCriterion({ settings, criterio, items, onProgress }) {
+  const c = CRITERIOS.find(([k]) => k === criterio);
+  const system = `Eres examinador(a) del examen oral de intérpretes judiciales del Poder Judicial dominicano (ENJ, 2026), español ↔ inglés. En esta prueba evalúas UN SOLO criterio: «${c[1]}» — ${c[2]}
+Califica cada ítem de 0 a 5 SOLO en ese criterio (5 = nivel de intérprete judicial certificado; 4 = parcial alto; 3 = parcial bajo; 2 = oportunidades de mejora; 1 = deficiencias significativas; 0 = no cumple o no respondió). Sé exigente y honesto/a: el aspirante necesita 90/100.
+La versión del aspirante es una transcripción automática: ignora puntuación, mayúsculas y ortografía. ${criterio === "fluidez" ? "Para fluidez, básate sobre todo en las métricas medidas: latencia de inicio (ideal < 2 s), pausas > 1 s, pausa más larga, palabras por minuto (ideal 110–150) y si completó el mensaje." : ""}
+En «problema» describe brevemente el fallo relacionado con este criterio (vacío si no hay). En «sugerido» da una versión correcta del fragmento problemático o de todo el ítem. «nota» global = tu calificación del criterio de 0 a 5 para el conjunto. «consejos»: máximo 3, concretos. Responde en español.`;
+  const user = JSON.stringify({ criterio: c[1], items: items.map((it, i) => ({ indice: i, idioma_origen: it.lang === "es" ? "español" : "inglés", idioma_destino: it.lang === "es" ? "inglés" : "español", original: it.t, transcripcion_aspirante: it.transcripcion || "(vacío)", metricas: it.metricas })) }, null, 1);
+  const r = await callJSON({ settings, system, user, schema: CRIT_EVAL_SCHEMA, maxTokens: 8000, effort: "low", onProgress });
+  r.nota = Math.max(0, Math.min(5, Math.round(Number(r.nota) || 0)));
+  for (const it of r.items || []) it.nota = Math.max(0, Math.min(5, Math.round(Number(it.nota) || 0)));
+  return r;
+}
+
+const SET_SCHEMA = obj({
+  quiz: arr(obj({ pregunta: str, opciones: arr(str), correcta: int, explicacion: str })),
+  orales: arr(obj({ texto: str }))
+});
+const PASAJE_SCHEMA = obj({
+  titulo: str, texto: str,
+  preguntas: arr(obj({ pregunta: str, opciones: arr(str), correcta: int }))
+});
+
+export async function generateCriterionSet({ settings, criterio, lang, onProgress }) {
+  const c = CRITERIOS.find(([k]) => k === criterio);
+  const origen = lang === "es" ? "español" : "inglés", destino = lang === "es" ? "inglés" : "español";
+  if (criterio === "comprension") {
+    const user = `Crea un pasaje para practicar COMPRENSIÓN AUDITIVA en ${origen} (120–170 palabras), contexto judicial dominicano (testimonio, relato de agente, decisión del tribunal, peritaje), con cifras, horas, nombres y matices (negaciones, condiciones). Luego 4 preguntas de selección múltiple escritas en ${destino}, de 4 opciones cada una, con distractores plausibles (cifras parecidas, matices invertidos). «correcta» es el índice (0–3).`;
+    return callJSON({ settings, system: GEN_SYSTEM, user, schema: PASAJE_SCHEMA, maxTokens: 6000, effort: "low", onProgress });
+  }
+  const user = `Crea material para practicar el criterio «${c[1]}» (${c[2]}) del examen oral de intérpretes judiciales, dirección ${origen} → ${destino}.
+1) "quiz": 8 preguntas de selección múltiple. Cada "pregunta" presenta un fragmento en ${origen} (entre comillas, de contexto judicial) o una situación, y las 4 "opciones" son posibles versiones en ${destino}; solo una es correcta respecto a este criterio, y los distractores contienen errores típicos de ese criterio. "correcta" = índice 0–3 (varía la posición). "explicacion" breve en español.
+2) "orales": 6 frases en ${origen} (15–40 palabras) para interpretar oralmente al ${destino}, cargadas de dificultades de este criterio, en contexto de audiencias dominicanas.`;
+  return callJSON({ settings, system: GEN_SYSTEM, user, schema: SET_SCHEMA, maxTokens: 8000, effort: "low", onProgress });
+}
+
 // Prueba rápida de la key.
 export async function testKey(settings) {
   const c = await getClient(settings.apiKey);
