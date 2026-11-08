@@ -113,23 +113,26 @@ async function ttsCachePut(k, blob) {
 }
 
 const inflight = new Map();
-function googleAudio(text, lang, rate) {
+// La velocidad se aplica al reproducir (playbackRate), así el mismo audio sirve para cualquier velocidad.
+const ttsKey = (text, lang) => `${tts[lang]}|${text}`;
+export async function isTTSCached(text, lang) { return !!(await ttsCacheGet(ttsKey(text, lang))); }
+
+function googleAudio(text, lang) {
   const voice = tts[lang];
-  const key = `${voice}|${rate}|${text}`;
+  const key = ttsKey(text, lang);
   if (inflight.has(key)) return inflight.get(key);
   const p = (async () => {
     const cached = await ttsCacheGet(key);
     if (cached) return cached;
-    const call = async (withRate) => {
-      const body = { input: { text }, voice: { languageCode: lang === "en" ? "en-US" : "es-US", name: voice }, audioConfig: { audioEncoding: "MP3", ...(withRate ? { speakingRate: rate } : {}) } };
-      const r = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(tts.key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { const e = new Error(j.error?.message || `Google TTS ${r.status}`); e.status = r.status; throw e; }
-      return j.audioContent;
-    };
-    let b64;
-    try { b64 = await call(rate !== 1); }
-    catch (e) { if (rate !== 1 && e.status === 400) b64 = await call(false); else throw e; }
+    if (!navigator.onLine) { const e = new Error("sin conexión"); e.offline = true; throw e; }
+    const body = { input: { text }, voice: { languageCode: lang === "en" ? "en-US" : "es-US", name: voice }, audioConfig: { audioEncoding: "MP3" } };
+    let r;
+    try {
+      r = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(tts.key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } catch (err) { const e = new Error("sin conexión"); e.offline = true; throw e; }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(j.error?.message || `Google TTS ${r.status}`); e.status = r.status; throw e; }
+    const b64 = j.audioContent;
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -143,8 +146,47 @@ function googleAudio(text, lang, rate) {
 }
 
 // Pre-carga una frase (para que no haya silencios entre oraciones).
-export function prefetch(text, lang, rate = 1) {
-  if (useGoogle() && text) googleAudio(text, lang, rate).catch(() => {});
+export function prefetch(text, lang) {
+  if (useGoogle() && text) googleAudio(text, lang).catch(() => {});
+}
+
+// Descarga por adelantado el audio natural de una lista de frases (para usar sin internet).
+export async function downloadTTS(list, onProgress, signal) {
+  let done = 0, skipped = 0, failed = 0;
+  const queue = [...list];
+  const worker = async () => {
+    while (queue.length && !signal?.aborted) {
+      const { text, lang } = queue.shift();
+      try {
+        if (await isTTSCached(text, lang)) skipped++;
+        else await googleAudio(text, lang);
+      } catch (e) {
+        failed++;
+        if (e.status === 400 || e.status === 403) throw e; // key inválida o API no habilitada
+      }
+      done++;
+      onProgress?.(done, list.length, skipped, failed);
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return { done, skipped, failed };
+}
+
+// ---------------- Reconocimiento de voz en el dispositivo (sin internet) ----------------
+export const localASRSupported = !!SR && ("processLocally" in (SR.prototype || {}) || typeof SR.available === "function" || typeof SR.availableOnDevice === "function");
+export async function localASRStatus(lang) {
+  try {
+    if (typeof SR.available === "function") return await SR.available({ langs: [lang], processLocally: true });
+    if (typeof SR.availableOnDevice === "function") return await SR.availableOnDevice(lang);
+  } catch {}
+  return "unknown";
+}
+export async function installLocalASR(lang) {
+  try {
+    if (typeof SR.install === "function") return await SR.install({ langs: [lang], processLocally: true });
+    if (typeof SR.installOnDevice === "function") return await SR.installOnDevice(lang);
+  } catch { return false; }
+  return false;
 }
 
 let player = null;
@@ -163,7 +205,7 @@ export function unlockAudio() {
   } catch {}
 }
 
-function playBlob(blob, signal) {
+function playBlob(blob, signal, rate = 1) {
   return new Promise((resolve) => {
     player ||= new Audio();
     const url = URL.createObjectURL(blob);
@@ -176,6 +218,8 @@ function playBlob(blob, signal) {
     if (signal) signal.addEventListener("abort", () => { player.pause(); finish(); }, { once: true });
     player.src = url;
     player.volume = 1;
+    player.preservesPitch = true;
+    player.playbackRate = rate;
     player.play().catch(finish);
   });
 }
@@ -184,11 +228,11 @@ function playBlob(blob, signal) {
 export async function speak(text, lang, opts = {}) {
   if (useGoogle()) {
     try {
-      const blob = await googleAudio(text, lang, opts.rate || 1);
+      const blob = await googleAudio(text, lang);
       if (opts.signal?.aborted) return { start: performance.now(), end: performance.now() };
-      return await playBlob(blob, opts.signal);
+      return await playBlob(blob, opts.signal, opts.rate || 1);
     } catch (e) {
-      tts.onError?.(e);
+      if (!e.offline) tts.onError?.(e); // sin internet y sin audio guardado: voz del teléfono, sin aviso
       // Respaldo: voz del navegador.
     }
   }
@@ -337,6 +381,8 @@ export class Recorder {
     r.continuous = true;
     r.interimResults = true;
     r.maxAlternatives = 1;
+    // Sin internet: usar el reconocimiento en el dispositivo si el navegador lo permite.
+    if (!navigator.onLine && "processLocally" in r) { try { r.processLocally = true; } catch {} }
     r.onresult = (e) => {
       const now = performance.now();
       this.lastResultAt = now;

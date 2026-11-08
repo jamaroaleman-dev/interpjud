@@ -52,8 +52,13 @@ function friendlyError(e) {
 }
 
 // Llamada con salida JSON estructurada y progreso por streaming.
+const offlineErr = () => Object.assign(new Error("Sin conexión a internet."), { offline: true });
+const isNetErr = (e) => !e?.status && (e?.name === "TypeError" || /connection|fetch|network|load failed|dynamically imported/i.test(`${e?.name} ${e?.message}`));
+
 async function callJSON({ settings, system, user, schema, maxTokens = 16000, effort = "medium", onProgress }) {
-  const c = await getClient(settings.apiKey);
+  if (!navigator.onLine) throw offlineErr();
+  let c;
+  try { c = await getClient(settings.apiKey); } catch (e) { if (isNetErr(e)) throw offlineErr(); throw e; }
   try {
     const stream = c.beta.messages.stream({
       model: settings.model || "claude-opus-5-5",
@@ -73,6 +78,7 @@ async function callJSON({ settings, system, user, schema, maxTokens = 16000, eff
     return JSON.parse(text);
   } catch (e) {
     if (e instanceof SyntaxError) throw new Error("Respuesta inválida de Claude. Intenta de nuevo.");
+    if (isNetErr(e)) throw offlineErr();
     throw new Error(friendlyError(e));
   }
 }

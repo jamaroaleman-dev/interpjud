@@ -26,8 +26,31 @@ export function initModulos(ctx) {
 }
 
 function saveCritHist() { CRIT_HIST = CRIT_HIST.slice(-400); C.LS.set("crit", CRIT_HIST); }
-function lastOf(k) { const h = CRIT_HIST.filter((x) => x.criterio === k); return h[h.length - 1] || null; }
-function bestOf(k) { const h = CRIT_HIST.filter((x) => x.criterio === k); return h.length ? Math.max(...h.map((x) => x.nota100)) : null; }
+function lastOf(k) { const h = CRIT_HIST.filter((x) => x.criterio === k && x.nota100 != null); return h[h.length - 1] || null; }
+function bestOf(k) { const h = CRIT_HIST.filter((x) => x.criterio === k && x.nota100 != null); return h.length ? Math.max(...h.map((x) => x.nota100)) : null; }
+
+// ---------- Evaluaciones de criterio pendientes (sin internet) ----------
+export function critPendingCount() { return (CRIT_HIST || []).filter((x) => x.pending).length; }
+function finalizeCrit(rec, ev) {
+  rec.oral5 = ev.nota;
+  rec.comentario = ev.comentario || "";
+  rec.consejos = ev.consejos || [];
+  const q5 = rec.quizPct != null ? rec.quizPct / 20 : null;
+  const n5 = q5 != null ? q5 * 0.4 + ev.nota * 0.6 : ev.nota;
+  rec.nota5 = +n5.toFixed(2);
+  rec.nota100 = n100(n5);
+  rec.pending = false;
+  delete rec.items;
+}
+export async function processCritPending() {
+  let ok = 0;
+  for (const rec of CRIT_HIST.filter((x) => x.pending)) {
+    if (!navigator.onLine) break;
+    try { finalizeCrit(rec, await evaluateCriterion({ settings: C.S, criterio: rec.criterio, items: rec.items })); ok++; saveCritHist(); }
+    catch (e) { if (e.offline) break; rec.pending = false; rec.error = e.message; saveCritHist(); }
+  }
+  return ok;
+}
 
 export function critSummaryHTML() {
   if (!CRIT_HIST?.length) return "";
@@ -103,7 +126,7 @@ function critPage(arg) {
         <button class="btn primary block" id="eGo">▶ Empezar evaluación (${dirLabel(C.S.critDir || "mix").toLowerCase()})</button>
       </div>
       <div class="card"><h2>Historial de este criterio</h2>
-        ${hist.length ? `<div class="list">${hist.map((h) => `<div class="item" style="cursor:default"><div class="grow"><div class="t">${h.nota100}/100 · ${dirLabel(h.dir)}</div><div class="d">${new Date(h.date).toLocaleString("es-DO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}${h.quizPct != null ? ` · escrito ${h.quizPct}%` : ""}${h.oral5 != null ? ` · oral ${h.oral5}/5` : ""}</div></div><span class="pill ${C.scoreClass(h.nota100)}">${h.nota100}</span></div>`).join("")}</div>` : `<p class="muted">Aún no has hecho esta evaluación.</p>`}
+        ${hist.length ? `<div class="list">${hist.map((h) => `<div class="item" style="cursor:default"><div class="grow"><div class="t">${h.pending ? "⏳ Pendiente de evaluar (se hará al tener internet)" : h.nota100 == null ? `Sin nota${h.error ? `: ${C.esc(h.error)}` : ""}` : `${h.nota100}/100`} · ${dirLabel(h.dir)}</div><div class="d">${new Date(h.date).toLocaleString("es-DO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}${h.quizPct != null ? ` · escrito ${h.quizPct}%` : ""}${h.oral5 != null ? ` · oral ${h.oral5}/5` : ""}</div></div><span class="pill ${h.pending ? "warn" : C.scoreClass(h.nota100)}">${h.pending ? "⏳" : h.nota100 ?? "—"}</span></div>`).join("")}</div>` : `<p class="muted">Aún no has hecho esta evaluación.</p>`}
       </div>`;
     C.$("#eGo").onclick = () => runEvaluation(k, C.S.critDir || "mix");
   }
@@ -123,6 +146,7 @@ function referenciaHTML(k) {
 
 async function genMore(k) {
   const out = C.$("#pGenOut"), b = C.$("#pGen");
+  if (!navigator.onLine) { out.textContent = "Necesitas internet para generar material nuevo."; return; }
   b.disabled = true;
   out.textContent = "Generando…";
   try {
@@ -398,7 +422,9 @@ async function runOral(k, dir, exam, onDone) {
       else if (it.term) { ui.state(rec.ok ? "✅ Correcto" : "❌"); ui.src(`<div class="flash">${C.esc(it.t)}</div><div class="src" style="text-align:center"><b>${C.esc(it.answers.join(" / "))}</b><br><span class="muted small">Dijiste: ${C.esc(res.transcript || "(nada)")}</span></div>`); }
       else {
         ui.src(`<div class="src small"><b>Original:</b> ${C.esc(it.t)}<br><b>Tu versión:</b> ${C.esc(res.transcript || "(nada)")}</div>`);
-        if (C.S.apiKey && res.transcript) {
+        if (C.S.apiKey && res.transcript && !navigator.onLine) {
+          ui.state("📴 Sin internet: compara tu versión con el original");
+        } else if (C.S.apiKey && res.transcript) {
           ui.state(`<span class="spinner" style="width:20px;height:20px;display:inline-block;margin:0 6px -4px 0"></span> Claude está corrigiendo…`);
           try {
             const ev = await evaluateCriterion({ settings: C.S, criterio: k, items: [rec] });
@@ -457,17 +483,19 @@ async function runEvaluation(k, dir) {
     if (oral === null && !quiz) return C.go(`#crit/${k}:evaluacion`);
   }
   // Calificar parte oral
-  let oralEval = null, oral5 = null;
+  let oralEval = null, oral5 = null, pending = false;
+  const pendItems = () => oral.items.map(({ lang, t, transcripcion, metricas }) => ({ lang, t, transcripcion, metricas }));
   if (oral?.items?.length) {
     if (m.oral === "interp") {
-      if (C.S.apiKey) {
+      if (C.S.apiKey && !navigator.onLine) pending = true;
+      else if (C.S.apiKey) {
         C.setTitle("Evaluando…");
         C.view.innerHTML = `<div class="card" style="text-align:center"><div class="spinner"></div><h2>Claude está evaluando: ${name(k)}</h2><p class="muted small" id="evP">Analizando ${oral.items.length} respuestas…</p></div>`;
         try {
           oralEval = await evaluateCriterion({ settings: C.S, criterio: k, items: oral.items, onProgress: (n) => { const p = C.$("#evP"); if (p) p.textContent = `Escribiendo la evaluación… ${n} caracteres`; } });
           oral5 = oralEval.nota;
           oralEval.items?.forEach((x) => { if (oral.items[x.indice]) Object.assign(oral.items[x.indice], { nota: x.nota, problema: x.problema, sugerido: x.sugerido }); });
-        } catch (e) { C.toast(e.message, 5000); }
+        } catch (e) { if (e.offline) pending = true; else C.toast(e.message, 5000); }
       }
     } else {
       const ns = oral.items.map((x) => x.nota ?? 0);
@@ -475,6 +503,18 @@ async function runEvaluation(k, dir) {
     }
   }
   const q5 = quiz ? quiz.pct / 20 : null;
+  if (pending) {
+    CRIT_HIST.push({ id: C.uid(), date: Date.now(), criterio: k, dir, quizPct: quiz?.pct ?? null, oral5: null, nota5: null, nota100: null, pending: true, items: pendItems() });
+    saveCritHist();
+    C.logDaily("criterios", (Date.now() - t0) / 60000);
+    C.setTitle("Resultado");
+    C.view.innerHTML = `<div class="card"><div class="muted small">${ICONOS[k]} Evaluación · ${dirLabel(dir)}</div><h2 style="margin:4px 0 12px">${name(k)}</h2>
+      ${quiz ? `<div class="stat"><b>${quiz.pct}%</b><span>parte escrita</span></div>` : ""}
+      <div class="note">⏳ Sin internet: la parte oral quedó guardada y Claude la evaluará automáticamente cuando te conectes. La nota final aparecerá en el historial de este criterio y en Progreso.</div></div>
+      ${quiz ? reviewHTML(quiz.review) : ""}
+      <div class="row" style="justify-content:center;margin-bottom:24px"><button class="btn" onclick="location.hash='#criterios'">Los 10 criterios</button><button class="btn primary" onclick="location.hash='#crit/${k}:evaluacion'">Ver historial</button></div>`;
+    return;
+  }
   let n5 = q5 != null && oral5 != null ? q5 * 0.4 + oral5 * 0.6 : q5 ?? oral5;
   if (n5 == null) return C.go(`#crit/${k}:evaluacion`);
   const rec = { id: C.uid(), date: Date.now(), criterio: k, dir, quizPct: quiz?.pct ?? null, oral5: oral5 != null ? +oral5.toFixed(1) : null, nota5: +n5.toFixed(2), nota100: n100(n5), comentario: oralEval?.comentario || "", consejos: oralEval?.consejos || [] };

@@ -3,7 +3,8 @@ import { DIALOGOS, DISCURSOS, VISTAS, GLOSARIO, MODISMOS, ESCENARIOS } from "./c
 import * as A from "./audio.js";
 import { CRITERIOS, MODELS, evaluate, generate, testKey } from "./ai.js";
 import { makeItem, checkItem, termMatch } from "./drills.js";
-import { initModulos, critSummaryHTML } from "./modulos.js";
+import { initModulos, critSummaryHTML, critPendingCount, processCritPending } from "./modulos.js";
+import { PASAJES, ORALES, PARES_PRON } from "./criterios.js";
 
 // ====================== Estado y almacenamiento ======================
 const LS = {
@@ -14,12 +15,14 @@ const LS = {
 const DEFAULTS = {
   apiKey: "", model: "claude-opus-5-5", escrito: 70, examDate: "",
   voiceES: "", voiceEN: "", rateES: 1, rateEN: 1,
-  recES: "es-DO", recEN: "en-US", useAudio: !A.isAndroid, silenceSec: 3, prepSec: 30,
+  recES: "es-US", recEN: "en-US", useAudio: !A.isAndroid, silenceSec: 3, prepSec: 30,
   showText: false, allowRepeat: true, nivel: 2
 };
 let S = { ...DEFAULTS, ttsProvider: "browser", googleKey: "", gVoiceEN: A.GOOGLE_VOICES.en[0][0], gVoiceES: A.GOOGLE_VOICES.es[0][0], ...LS.get("settings", {}) };
 // Migración: volver a elegir la mejor voz del navegador (prioriza voces «Natural»).
 if (S.voiceVer !== 2) { S.voiceEN = ""; S.voiceES = ""; S.voiceVer = 2; LS.set("settings", S); }
+// es-US tiene paquete de reconocimiento sin conexión; es-DO normalmente no.
+if (!S.recVer) { if (S.recES === "es-DO") S.recES = "es-US"; S.recVer = 1; LS.set("settings", S); }
 let ttsWarned = false;
 function applyTTS() {
   A.configureTTS({
@@ -172,6 +175,8 @@ routes.home = () => {
         <div class="stat"><b>${avg == null ? "—" : ((S.escrito + avg) / 2).toFixed(1)}</b><span>global estimado (escrito ${S.escrito})</span></div>
         <div class="stat"><b>${streak()}🔥</b><span>días seguidos · ${d.min ? Math.round(d.min) : 0} min hoy</span></div>
       </div>
+      ${!navigator.onLine ? `<div class="note">📴 Sin internet. Puedes practicar todo; las evaluaciones de Claude quedan pendientes y se hacen solas al conectarte.</div>` : ""}
+      ${pendingCount() ? `<div class="note">⏳ ${pendingCount()} evaluación(es) pendiente(s)${navigator.onLine ? " — procesando…" : " — se harán al tener internet"}.</div>` : ""}
       ${!S.apiKey ? `<div class="note">Para que Claude te evalúe y genere ejercicios nuevos, agrega tu API key en <a href="#ajustes">Ajustes</a>. Sin ella puedes practicar con el banco integrado y los drills.</div>` : ""}
     </div>
 
@@ -667,28 +672,57 @@ async function finishExercise(ex, segs, minutes) {
   saveHist();
   logDaily(ex.tipo === "simulacro" ? "consec" : ex.tipo, minutes);
   if (ex.tipo === "simulacro") { logDaily("simul"); logDaily("vista"); }
-  if (S.apiKey) await runEvaluation(rec);
+  if (S.apiKey && !navigator.onLine) { rec.pendingEval = true; saveHist(); toast("Sin internet: la evaluación quedó pendiente y se hará sola al conectarte.", 5000); go("#reporte/" + rec.id); }
+  else if (S.apiKey) await runEvaluation(rec);
   else go("#reporte/" + rec.id);
+}
+
+async function evalRecord(rec, onProgress) {
+  const r = await evaluate({ settings: S, ejercicio: rec, segmentos: rec.segmentos, onProgress });
+  rec.eval = r;
+  rec.puntuaciones = Object.fromEntries(CRITERIOS.map(([k]) => [k, r.puntuaciones?.[k]?.nota ?? 0]));
+  rec.nota100 = Object.values(rec.puntuaciones).reduce((a, b) => a + b, 0) * 2;
+  rec.pendingEval = false;
+  rec.evalError = null;
+  saveHist();
 }
 
 async function runEvaluation(rec) {
   setTitle("Evaluando…");
   view.innerHTML = `<div class="card" style="text-align:center"><div class="spinner"></div><h2>Claude está evaluando tu interpretación</h2><p class="muted small" id="evProg">Analizando ${rec.segmentos.length} segmento(s) con la rúbrica de 10 criterios…</p><p class="muted small">Puede tardar entre 30 s y 2 min.</p></div>`;
   try {
-    const r = await evaluate({
-      settings: S, ejercicio: rec, segmentos: rec.segmentos,
-      onProgress: (n) => { const p = $("#evProg"); if (p) p.textContent = `Escribiendo la evaluación… ${n} caracteres`; }
-    });
-    rec.eval = r;
-    rec.puntuaciones = Object.fromEntries(CRITERIOS.map(([k]) => [k, r.puntuaciones?.[k]?.nota ?? 0]));
-    rec.nota100 = Object.values(rec.puntuaciones).reduce((a, b) => a + b, 0) * 2;
-    saveHist();
+    await evalRecord(rec, (n) => { const p = $("#evProg"); if (p) p.textContent = `Escribiendo la evaluación… ${n} caracteres`; });
   } catch (e) {
-    rec.evalError = e.message;
+    if (e.offline) { rec.pendingEval = true; toast("Sin internet: la evaluación quedó pendiente y se hará sola al conectarte.", 5000); }
+    else rec.evalError = e.message;
     saveHist();
   }
   go("#reporte/" + rec.id);
 }
+
+// ---------- Cola de evaluaciones pendientes (se procesa al volver internet) ----------
+let processing = false;
+function pendingCount() { return HIST.filter((h) => h.pendingEval).length + critPendingCount(); }
+async function processPending() {
+  if (processing || !navigator.onLine || !S.apiKey) return;
+  processing = true;
+  let ok = 0;
+  try {
+    for (const rec of HIST.filter((h) => h.pendingEval)) {
+      if (!navigator.onLine) break;
+      try { await evalRecord(rec); ok++; }
+      catch (e) { if (e.offline) break; rec.pendingEval = false; rec.evalError = e.message; saveHist(); }
+    }
+    ok += await processCritPending();
+  } finally { processing = false; }
+  if (ok) {
+    toast(`✓ ${ok} evaluación(es) pendiente(s) completada(s). Revísalas en Progreso.`, 6000);
+    if (calmScreen()) render();
+  }
+}
+const calmScreen = () => !current && ["home", "progreso", "ajustes", "criterios"].includes((location.hash.slice(1) || "home").split("/")[0]);
+window.addEventListener("online", () => { if (calmScreen()) render(); setTimeout(processPending, 1500); });
+window.addEventListener("offline", () => { if (calmScreen()) render(); });
 
 routes.reporte = async (id) => {
   const rec = HIST.find((h) => h.id === id);
@@ -716,8 +750,9 @@ routes.reporte = async (id) => {
         <div class="stat"><b>${((S.escrito + n) / 2).toFixed(1)}</b><span>promedio global con escrito ${S.escrito} (mín. 80)</span></div>
         <div class="stat"><b>${n >= 90 ? "✓" : `−${90 - n}`}</b><span>${n >= 90 ? "alcanzas la meta de 90" : "puntos para llegar a 90"}</span></div>
       </div>` : ""}
+      ${rec.pendingEval ? `<div class="note">⏳ Evaluación pendiente: se hará automáticamente cuando tengas internet. Mientras, revisa abajo tus transcripciones, métricas y audios.</div>` : ""}
       ${rec.evalError ? `<div class="err">No se pudo evaluar: ${esc(rec.evalError)}</div><button class="btn primary" id="retryEv">Reintentar evaluación</button>` : ""}
-      ${!ev && !rec.evalError ? `<div class="note">Sin evaluación de Claude (no hay API key). Abajo están tus métricas, transcripciones y audios.${S.apiKey ? "" : ` <a href="#ajustes">Agregar API key</a>`}</div>${S.apiKey ? `<button class="btn primary" id="retryEv">Evaluar ahora</button>` : ""}` : ""}
+      ${!ev && !rec.evalError && !rec.pendingEval ? `<div class="note">Sin evaluación de Claude (no hay API key). Abajo están tus métricas, transcripciones y audios.${S.apiKey ? "" : ` <a href="#ajustes">Agregar API key</a>`}</div>${S.apiKey ? `<button class="btn primary" id="retryEv">Evaluar ahora</button>` : ""}` : ""}
     </div>
     ${ev ? `
     <div class="card"><h2>Resumen</h2><p style="margin:0">${esc(ev.resumen)}</p>
@@ -1012,7 +1047,7 @@ routes.progreso = () => {
     }).join("")}</div>` : ""}
     ${critSummaryHTML()}
     <div class="card"><h2>Historial</h2><div class="list">
-      ${[...HIST].reverse().slice(0, 80).map((h) => `<button class="item" data-id="${h.id}" ${h.segmentos?.length ? "" : "disabled style='cursor:default'"}><div class="grow"><div class="t">${esc(h.titulo)}</div><div class="d">${esc(h.tipoLabel)} · ${fmtDate(h.date)} · ${Math.round(h.minutos || 0)} min</div></div>${h.nota100 != null ? `<span class="pill ${scoreClass(h.nota100)}">${h.nota100}</span>` : h.drillPct != null ? `<span class="pill">${h.drillPct}%</span>` : `<span class="pill">sin nota</span>`}</button>`).join("") || `<p class="muted">Aún no hay práctica registrada.</p>`}
+      ${[...HIST].reverse().slice(0, 80).map((h) => `<button class="item" data-id="${h.id}" ${h.segmentos?.length ? "" : "disabled style='cursor:default'"}><div class="grow"><div class="t">${esc(h.titulo)}</div><div class="d">${esc(h.tipoLabel)} · ${fmtDate(h.date)} · ${Math.round(h.minutos || 0)} min</div></div>${h.nota100 != null ? `<span class="pill ${scoreClass(h.nota100)}">${h.nota100}</span>` : h.pendingEval ? `<span class="pill warn">⏳ pendiente</span>` : h.drillPct != null ? `<span class="pill">${h.drillPct}%</span>` : `<span class="pill">sin nota</span>`}</button>`).join("") || `<p class="muted">Aún no hay práctica registrada.</p>`}
     </div></div>
     <div class="card"><h2>Respaldo</h2><p class="muted small">El progreso se guarda en este dispositivo. Exporta para pasarlo entre la PC y el celular (los audios no se incluyen).</p>
       <div class="row"><button class="btn sm" id="exp">⬇ Exportar</button><label class="btn sm">⬆ Importar<input type="file" id="imp" accept="application/json" hidden></label></div></div>`;
@@ -1114,6 +1149,22 @@ routes.ajustes = async () => {
       <div class="meter"><i id="mMeter"></i></div>
       <div class="live" id="mLive" style="display:none"></div>
     </div>
+    <div class="card"><h2>📴 Uso sin internet</h2>
+      <p class="small" style="margin-top:0">${navigator.serviceWorker?.controller ? "✓ El app está guardada en este dispositivo y abre sin internet." : "Abre el app una vez con internet desde el enlace publicado para que quede guardada en el dispositivo."}</p>
+      <h3>1. Voces naturales sin internet</h3>
+      ${S.ttsProvider === "google" && S.googleKey
+        ? `<p class="muted small">Descarga una sola vez el audio de todo el banco (diálogos, discursos, pasajes, frases y términos) con tu voz natural actual: <b id="oCount">calculando…</b>. Lo que no esté descargado (cifras aleatorias, material nuevo) usará la voz del teléfono.</p>
+           <button class="btn sm" id="oTTS">⬇ Descargar voces para usar sin internet</button><div class="bar" style="margin-top:8px"><i id="oBar" style="width:0"></i></div><p class="small" id="oOut"></p>`
+        : `<p class="muted small">Sin internet se usa la voz del teléfono. Para tener la voz natural sin conexión, activa Google Cloud arriba y vuelve aquí para descargarla.</p>`}
+      <h3>2. Reconocimiento de voz sin internet</h3>
+      ${A.localASRSupported
+        ? `<p class="muted small">Tu navegador puede reconocer la voz en el dispositivo. Descarga los idiomas:</p><p class="small" id="aStat">Estado: comprobando…</p><button class="btn sm" id="aInst">⬇ Descargar reconocimiento (inglés y español)</button>`
+        : `<p class="muted small">Este navegador no anuncia reconocimiento en el dispositivo. En Android puede funcionar igual si descargas los idiomas en el teléfono: <b>Ajustes → Google → Ajustes de las apps de Google → Búsqueda, Asistente y voz → Voz → Reconocimiento de voz sin conexión</b> → descarga «English (US)» y «Español (Estados Unidos)». Luego activa el modo avión y usa «Probar micrófono» arriba para confirmarlo.</p>`}
+      <p class="muted small">Si sin internet no se obtiene transcripción, el app igual graba tu audio y mide pausas y ritmo, pero esa respuesta no podrá evaluarla Claude.</p>
+      <h3>3. Evaluaciones pendientes</h3>
+      <p class="small"><b id="pCount">${pendingCount()}</b> pendiente(s). Se evalúan solas al volver internet.</p>
+      <button class="btn sm" id="pNow" ${pendingCount() && navigator.onLine ? "" : "disabled"}>Evaluar pendientes ahora</button>
+    </div>
     <div class="card"><h2>Apariencia</h2>
       <select id="theme"><option value="">Automática</option><option value="light">Clara</option><option value="dark">Oscura</option></select>
     </div>
@@ -1161,10 +1212,58 @@ routes.ajustes = async () => {
   };
   $("#mTest").onclick = () => micTest("en");
   $("#mTestEs").onclick = () => micTest("es");
+  // --- Uso sin internet ---
+  const oTTS = $("#oTTS");
+  if (oTTS) {
+    const list = speechTexts();
+    const chars = list.reduce((a, x) => a + x.text.length, 0);
+    Promise.all(list.map((x) => A.isTTSCached(x.text, x.lang))).then((r) => {
+      const have = r.filter(Boolean).length;
+      const el = $("#oCount"); if (el) el.textContent = `${list.length} frases (~${Math.round(chars / 1000)}k caracteres, dentro del nivel gratis). ya descargadas: ${have}`;
+    });
+    oTTS.onclick = async () => {
+      if (!navigator.onLine) return toast("Conéctate a internet para descargar.");
+      oTTS.disabled = true;
+      try {
+        const r = await A.downloadTTS(list, (d, t, sk, f) => { $("#oBar").style.width = `${(d / t) * 100}%`; $("#oOut").textContent = `${d}/${t} · ${f ? f + " con error" : "sin errores"}`; });
+        $("#oOut").textContent = `✓ Listo: ${r.done - r.failed} frases disponibles sin internet${r.failed ? ` (${r.failed} fallaron; vuelve a tocar para reintentar)` : ""}.`;
+      } catch (e) { $("#oOut").textContent = "Error de Google: " + e.message; }
+      oTTS.disabled = false;
+    };
+  }
+  const aInst = $("#aInst");
+  if (aInst) {
+    const showStat = async () => { const a = await A.localASRStatus(S.recEN), b = await A.localASRStatus(S.recES); $("#aStat").textContent = `Estado: inglés (${S.recEN}) → ${a}; español (${S.recES}) → ${b}`; };
+    showStat();
+    aInst.onclick = async () => {
+      aInst.disabled = true; $("#aStat").textContent = "Descargando… (puede tardar unos minutos)";
+      const r1 = await A.installLocalASR(S.recEN), r2 = await A.installLocalASR(S.recES);
+      await showStat();
+      if (!r1 || !r2) toast("Algún idioma no se pudo instalar. Prueba con es-US / en-US en «Reconocer como».", 6000);
+      aInst.disabled = false;
+    };
+  }
+  $("#pNow").onclick = async () => { $("#pNow").disabled = true; await processPending(); $("#pCount").textContent = pendingCount(); };
+
   const th = $("#theme");
   th.value = LS.get("theme", "");
   th.onchange = () => { LS.set("theme", th.value); applyTheme(); };
 };
+
+// Todas las frases que el app puede decir con el banco (para descargarlas y usarlas sin internet).
+function speechTexts() {
+  const out = new Map();
+  const add = (text, lang) => { text = (text || "").trim(); if (text) out.set(`${lang}|${text}`, { text, lang }); };
+  const crit = LS.get("critsets", {});
+  for (const d of [...DIALOGOS, ...GENERATED.filter((g) => g.tipo === "consec")]) for (const t of d.turnos || []) add(t.texto, t.idioma);
+  for (const d of [...DISCURSOS, ...GENERATED.filter((g) => g.tipo === "simul")]) for (const s of A.splitSentences(d.texto)) add(s, d.idioma);
+  for (const p of [...PASAJES, ...(crit.comprension?.pasajes || [])]) for (const s of A.splitSentences(p.texto)) add(s, p.lang);
+  for (const arr of [...Object.values(ORALES), ...Object.values(crit).map((x) => x.orales || [])]) for (const o of arr) add(o.t, o.lang);
+  for (const [en, es] of [...GLOSARIO, ...MYTERMS]) { add(en.split("|")[0], "en"); add(es.split("|")[0], "es"); }
+  for (const [a, b, cat] of MODISMOS) { const [en, es] = cat === "Dominicano" ? [b, a] : [a, b]; add(en.split("|")[0], "en"); add(es.split("|")[0], "es"); }
+  for (const l of ["en", "es"]) for (const [w] of PARES_PRON[l]) add(w.replaceAll("/", ","), l);
+  return [...out.values()];
+}
 
 function applyTheme() {
   const t = LS.get("theme", "");
@@ -1189,5 +1288,6 @@ A.loadVoices().then(() => setTimeout(() => {
   if (changed) saveSettings();
 }, 1500));
 // Limpiar audios viejos (conservar los de los últimos 40 ejercicios).
-A.pruneAudio(HIST.slice(-40).flatMap((h) => (h.segmentos || []).map((s) => s.audioId).filter(Boolean)));
+setTimeout(processPending, 3000);
+A.pruneAudio([...HIST.filter((h) => h.pendingEval), ...HIST.slice(-40)].flatMap((h) => (h.segmentos || []).map((s) => s.audioId).filter(Boolean)));
 render();

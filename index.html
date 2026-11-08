@@ -139,7 +139,14 @@ svg text{fill:var(--muted);font-size:11px}
 <script type="module" src="js/app.js"></script>
 <script>
 if ("serviceWorker" in navigator && location.protocol === "https:") {
+  const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register("sw.js").catch(() => {});
+  // Nueva versión instalada: recargar si estás en una pantalla tranquila.
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController) return;
+    const h = (location.hash.slice(1) || "home").split("/")[0];
+    if (["home", "ajustes", "progreso", "criterios"].includes(h)) location.reload();
+  });
 }
 </script>
 </body>
