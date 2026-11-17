@@ -917,7 +917,7 @@ async function runNumeros(dir, count) {
     ui.live(null);
     ui.ctl(`<button class="btn primary" id="nxt">Siguiente ▶</button>`);
     await new Promise((r) => {
-      const to = setTimeout(r, c.okCount === c.total ? 1800 : 60000);
+      const to = 0; // no avanza solo: espera a «Siguiente»
       $("#nxt").onclick = () => { clearTimeout(to); r(); };
       sess.waiters.push(() => { clearTimeout(to); r(); });
     });
@@ -1027,7 +1027,7 @@ async function runTerminos(deck, dir, count) {
     A.speak(answers[0], to, { rate: rateOf(to), voiceName: voiceOf(to), signal: sess.ctrl.signal });
     let verdict = m.ok;
     await new Promise((r) => {
-      const to2 = setTimeout(r, m.ok ? 1800 : 60000);
+      const to2 = 0; // no avanza solo: espera a «Siguiente»
       $("#fix").onclick = () => { verdict = !verdict; show(verdict); $("#fix").disabled = true; clearTimeout(to2); };
       $("#nxt").onclick = () => { clearTimeout(to2); r(); };
       sess.waiters.push(() => { clearTimeout(to2); r(); });
