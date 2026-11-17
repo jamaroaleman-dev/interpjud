@@ -103,6 +103,8 @@ let current = null; // sesión en curso (para abortar)
 const routes = {};
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 window.addEventListener("hashchange", render);
+// Botones de navegación: siempre vuelven a dibujar la pantalla, aunque la dirección sea la misma.
+document.addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) { e.preventDefault(); go(b.dataset.go); } });
 $("#backBtn").onclick = () => go("#home");
 $("#settingsBtn").onclick = () => go("#ajustes");
 
@@ -202,26 +204,26 @@ routes.home = () => {
     <div class="card">
       <h2>Simulacro del examen</h2>
       <p class="muted small" style="margin:0 0 10px">Igual que el examen: simulación de audiencia, <b>solo interpretación consecutiva</b> español ⇄ inglés, con reloj de <b>20 minutos</b> y evaluación con los 10 criterios oficiales (sobre 50 → 100).</p>
-      <button class="btn primary block" onclick="location.hash='#simulacro'">▶ Hacer un simulacro</button>
+      <button class="btn primary block" data-go="#simulacro">▶ Hacer un simulacro</button>
     </div>
 
     <div class="card">
       <h2>Los 10 criterios del oral</h2>
       <p class="muted small" style="margin:0 0 10px">Práctica y evaluación individual de cada aspecto: gramática, integridad del mensaje, fluidez, pronunciación, comprensión, terminología, interferencias, números, modismos y registro.</p>
-      <button class="btn block" onclick="location.hash='#criterios'">📋 Ir a los 10 criterios</button>
+      <button class="btn block" data-go="#criterios">📋 Ir a los 10 criterios</button>
     </div>
 
     <div class="grid">
-      <button class="tile" onclick="location.hash='#consec'"><span class="ic">🗣️</span><b>Consecutiva</b><span>Diálogos de audiencia ES ⇄ EN</span></button>
-      <button class="tile" onclick="location.hash='#numeros'"><span class="ic">🔢</span><b>Números y nombres</b><span>Cifras, fechas, montos, cédulas</span></button>
-      <button class="tile" onclick="location.hash='#terminos'"><span class="ic">⚖️</span><b>Terminología</b><span>Tarjetas habladas y modismos</span></button>
-      <button class="tile" onclick="location.hash='#progreso'"><span class="ic">📈</span><b>Progreso</b><span>Historial, notas, debilidades</span></button>
+      <button class="tile" data-go="#consec"><span class="ic">🗣️</span><b>Consecutiva</b><span>Diálogos de audiencia ES ⇄ EN</span></button>
+      <button class="tile" data-go="#numeros"><span class="ic">🔢</span><b>Números y nombres</b><span>Cifras, fechas, montos, cédulas</span></button>
+      <button class="tile" data-go="#terminos"><span class="ic">⚖️</span><b>Terminología</b><span>Tarjetas habladas y modismos</span></button>
+      <button class="tile" data-go="#progreso"><span class="ic">📈</span><b>Progreso</b><span>Historial, notas, debilidades</span></button>
     </div>
     <details class="card" style="margin-top:14px"><summary>Extra (no entra en el examen): simultánea y a la vista</summary>
       <p class="muted small">La guía oficial dice que el oral es solo consecutiva. Úsalas solo para ganar agilidad.</p>
       <div class="grid">
-        <button class="tile" onclick="location.hash='#simul'"><span class="ic">🎧</span><b>Simultánea</b><span>Discursos continuos, con audífonos</span></button>
-        <button class="tile" onclick="location.hash='#vista'"><span class="ic">📄</span><b>A la vista</b><span>Lee un documento y dilo en el otro idioma</span></button>
+        <button class="tile" data-go="#simul"><span class="ic">🎧</span><b>Simultánea</b><span>Discursos continuos, con audífonos</span></button>
+        <button class="tile" data-go="#vista"><span class="ic">📄</span><b>A la vista</b><span>Lee un documento y dilo en el otro idioma</span></button>
       </div>
     </details>
 
@@ -786,7 +788,7 @@ routes.reporte = async (id) => {
     ` : ""}
     <div class="card"><h2>Segmento por segmento</h2>${rec.segmentos.map((s, i) => segHTML(s, i, ev)).join("")}</div>
     <div class="row" style="justify-content:center;margin-bottom:24px">
-      <button class="btn" onclick="location.hash='#home'">⌂ Inicio</button>
+      <button class="btn" data-go="#home">⌂ Inicio</button>
       ${rec.srcId && !String(rec.srcId).startsWith("mock") ? `<button class="btn primary" id="again">↺ Repetir este ejercicio</button>` : ""}
     </div>`;
   // audios
@@ -928,7 +930,7 @@ async function runNumeros(dir, count) {
   setTitle("Resultado");
   view.innerHTML = `
     <div class="card" style="text-align:center"><div class="big-score" style="color:var(--${pct >= 95 ? "good" : pct >= 85 ? "warn" : "bad"})">${pct}%</div><p class="muted">${ok} de ${total} datos exactos. En el examen, cada cifra o nombre alterado cuesta puntos en «Números, nombres y fechas».</p>
-    <div class="row" style="justify-content:center"><button class="btn primary" onclick="location.hash='#numeros'">↺ Otra ronda</button><button class="btn" onclick="location.hash='#home'">⌂ Inicio</button></div></div>
+    <div class="row" style="justify-content:center"><button class="btn primary" data-go="#numeros">↺ Otra ronda</button><button class="btn" data-go="#home">⌂ Inicio</button></div></div>
     <div class="card"><h2>Fallos</h2>${log.filter((l) => l.c.okCount < l.c.total).map((l) => `<div class="src small" style="margin-bottom:8px"><b>${esc(l.item.text)}</b><br>Dijiste: ${esc(l.transcript || "(nada)")}<br>${l.c.checks.filter((k) => !k.ok).map((k) => `<span class="pill bad">✗ ${esc(k.label)}</span>`).join(" ")}</div>`).join("") || `<div class="ok">¡Sin fallos!</div>`}</div>`;
 }
 
@@ -1042,7 +1044,7 @@ async function runTerminos(deck, dir, count) {
   setTitle("Resultado");
   view.innerHTML = `
     <div class="card" style="text-align:center"><div class="big-score" style="color:var(--${pct >= 90 ? "good" : pct >= 75 ? "warn" : "bad"})">${pct}%</div><p class="muted">${ok} de ${n} correctos.</p>
-    <div class="row" style="justify-content:center"><button class="btn primary" onclick="location.hash='#terminos'">↺ Otra ronda</button><button class="btn" onclick="location.hash='#home'">⌂ Inicio</button></div></div>
+    <div class="row" style="justify-content:center"><button class="btn primary" data-go="#terminos">↺ Otra ronda</button><button class="btn" data-go="#home">⌂ Inicio</button></div></div>
     ${missed.length ? `<div class="card"><h2>Repasa</h2><table class="e"><tr><th>Inglés</th><th>Español</th></tr>${missed.map((c) => `<tr><td>${esc(c.en.replaceAll("|", " / "))}</td><td>${esc(c.es.replaceAll("|", " / "))}</td></tr>`).join("")}</table></div>` : ""}`;
 }
 

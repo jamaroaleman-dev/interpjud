@@ -314,7 +314,7 @@ function showQuizReview(k, pct, review, exam) {
   C.setTitle("Resultado");
   C.view.innerHTML = `
     <div class="card" style="text-align:center"><div class="big-score" style="color:var(--${pct >= 90 ? "good" : pct >= 75 ? "warn" : "bad"})">${pct}%</div><p class="muted">${name(k)} · quiz de práctica</p>
-      <div class="row" style="justify-content:center"><button class="btn primary" id="again">↺ Otro quiz</button><button class="btn" onclick="location.hash='#crit/${k}'">Volver al criterio</button></div></div>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="again">↺ Otro quiz</button><button class="btn" data-go="#crit/${k}">Volver al criterio</button></div></div>
     ${reviewHTML(review)}`;
   C.$("#again").onclick = () => runQuiz(k, C.S.critDir || "mix", false);
 }
@@ -501,7 +501,7 @@ async function runOral(k, dir, exam, onDone) {
   const n5 = avg.length ? avg.reduce((a, d) => a + d.nota, 0) / avg.length : null;
   C.setTitle("Resultado");
   C.view.innerHTML = `<div class="card" style="text-align:center">${n5 != null ? `<div class="big-score" style="color:var(--${C.scoreClass(n100(n5))})">${n5.toFixed(1)}/5</div>` : ""}<p class="muted">${name(k)} · práctica oral (${done.length} ítems)</p>
-    <div class="row" style="justify-content:center"><button class="btn primary" id="again">↺ Otra práctica</button><button class="btn" onclick="location.hash='#crit/${k}'">Volver al criterio</button></div></div>`;
+    <div class="row" style="justify-content:center"><button class="btn primary" id="again">↺ Otra práctica</button><button class="btn" data-go="#crit/${k}">Volver al criterio</button></div></div>`;
   C.$("#again").onclick = () => runOral(k, C.S.critDir || "mix", false);
 }
 
@@ -557,7 +557,7 @@ async function runEvaluation(k, dir) {
       ${quiz ? `<div class="stat"><b>${quiz.pct}%</b><span>parte escrita</span></div>` : ""}
       <div class="note">⏳ Sin internet: la parte oral quedó guardada y Claude la evaluará automáticamente cuando te conectes. La nota final aparecerá en el historial de este criterio y en Progreso.</div></div>
       ${quiz ? reviewHTML(quiz.review) : ""}
-      <div class="row" style="justify-content:center;margin-bottom:24px"><button class="btn" onclick="location.hash='#criterios'">Los 10 criterios</button><button class="btn primary" onclick="location.hash='#crit/${k}:evaluacion'">Ver historial</button></div>`;
+      <div class="row" style="justify-content:center;margin-bottom:24px"><button class="btn" data-go="#criterios">Los 10 criterios</button><button class="btn primary" data-go="#crit/${k}:evaluacion">Ver historial</button></div>`;
     return;
   }
   let n5 = q5 != null && oral5 != null ? q5 * 0.4 + oral5 * 0.6 : q5 ?? oral5;
@@ -590,5 +590,5 @@ async function runEvaluation(k, dir) {
         ${x.answers ? `<p class="small">Respuesta esperada: <b>${C.esc(x.answers.join(" / "))}</b></p>` : ""}
         ${x.problema ? `<div class="err">${C.esc(x.problema)}</div>` : ""}${x.sugerido ? `<div class="ok"><b>Mejor:</b> ${C.esc(x.sugerido)}</div>` : ""}
       </details>`).join("")}</div>` : ""}
-    <div class="row" style="justify-content:center;margin-bottom:24px"><button class="btn" onclick="location.hash='#criterios'">Los 10 criterios</button><button class="btn primary" onclick="location.hash='#crit/${k}:practica'">Practicar este criterio</button></div>`;
+    <div class="row" style="justify-content:center;margin-bottom:24px"><button class="btn" data-go="#criterios">Los 10 criterios</button><button class="btn primary" data-go="#crit/${k}:practica">Practicar este criterio</button></div>`;
 }
