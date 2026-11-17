@@ -1,4 +1,4 @@
-// Contenido de los módulos por criterio (Bases, art. 6.2, párrafo II).
+// Contenido de los módulos por criterio (Guía oficial de evaluación oral, ENJ 2026).
 // Quiz: d = idioma del original ("en" = de inglés a español, "es" = de español a inglés).
 // Orales: lang = idioma del original que se interpreta (o que se repite en pronunciación).
 
@@ -87,14 +87,17 @@ export const GUIAS = {
     "Estilo directo: en consecutiva hablas en primera persona («I was scared», no «she says she was scared»).",
     "Preposiciones: «depend on» = depender de; «consist of» = consistir en; «on Monday» = el lunes."
   ],
-  vocabulario_general: [
-    "Domina el vocabulario cotidiano de los relatos: partes del cuerpo, lesiones, ropa, vehículos, armas, drogas, dinero, parentesco.",
-    "Busca la palabra exacta, no la aproximada: «bruise» = moretón/hematoma (no «golpe»); «purse» = cartera; «wallet» = billetera.",
-    "Usa registro neutro y comprensible para todos en el tribunal; evita regionalismos innecesarios.",
-    "Si no conoces una palabra, describe con precisión antes que inventar; en el examen es mejor que omitir."
+  integridad_mensaje: [
+    "Regla de oro: TODO lo que dijo el orador, NADA más. Cada dato omitido, añadido o cambiado baja este criterio (un solo dato perdido ya impide el 5).",
+    "Toma notas en consecutiva: números, nombres, fechas, lugares, negaciones y conectores (pero, porque, aunque, entonces) son lo primero que se pierde.",
+    "No 'mejores' ni resumas: si el testigo repite, duda o se contradice, tú también. Si dice «creo que», no lo conviertas en certeza.",
+    "Cuida las negaciones y los matices: «no lo vi bien» ≠ «no lo vi»; «casi me atropella» ≠ «me atropelló»; «unos 20» ≠ «20».",
+    "Mantén quién hizo qué a quién: confundir sujeto/objeto o él/ella es una modificación del mensaje.",
+    "Discurso directo: «I was scared» = «Yo tenía miedo», nunca «Dice que tenía miedo». No expliques ni añadas aclaraciones propias.",
+    "Si se te escapa algo, es mejor pedir repetición una vez que inventar u omitir (aunque la repetición cuenta en Comprensión)."
   ],
   fluidez: [
-    "Arranca en menos de 2 segundos tras el original en consecutiva; en simultánea mantén 2–4 s de desfase.",
+    "Arranca en menos de 2 segundos tras el original: mira tus notas, respira y empieza con la idea principal.",
     "Evita muletillas («eh», «este», «um», «like») y falsos comienzos. Una pausa breve en silencio es mejor que «eeeh».",
     "Ritmo objetivo: 110–150 palabras por minuto, constante, sin acelerar al final.",
     "Si te equivocas, corrige una sola vez y sigue («…el martes, perdón, el miércoles…»).",
@@ -157,7 +160,7 @@ export const QUIZ = {
     { d: "es", q: "«Los documentos que la defensa presentó no fueron admitidos.»", o: ["The documents what the defense presented were not admitted.", "The documents that the defense submitted were not admitted.", "The documents that the defense submitted was not admitted.", "The documents the defense submitted they were not admitted."], c: 1, e: "Relativo «that/which», concordancia plural (were) y sin pronombre redundante." },
     { d: "en", q: "«Neither the driver nor the passengers were injured.»", o: ["Ni el conductor ni los pasajeros resultaron heridos.", "Ni el conductor o los pasajeros fue herido.", "Ni el conductor ni los pasajeros no resultaron heridos.", "El conductor ni los pasajeros resultaron heridos."], c: 0, e: "«Ni… ni…» con verbo en plural y sin doble negación añadida." }
   ],
-  vocabulario_general: [
+  integridad_mensaje: [
     { d: "en", q: "«She had a bruise on her left cheek.»", o: ["Tenía un golpe en la mejilla izquierda.", "Tenía un moretón en la mejilla izquierda.", "Tenía una herida en la mejilla izquierda.", "Tenía una cicatriz en la mejilla izquierda."], c: 1, e: "«Bruise» = moretón/hematoma. «Golpe» es la causa; «scar» = cicatriz; «wound» = herida." },
     { d: "en", q: "«He grabbed my purse.»", o: ["Agarró mi billetera.", "Agarró mi cartera.", "Agarró mi bolsillo.", "Agarró mi mochila."], c: 1, e: "«Purse» = cartera (de mujer); «wallet» = billetera; «backpack» = mochila." },
     { d: "es", q: "«Tenía una cortada en la ceja y le dieron tres puntos.»", o: ["He had a cut on his eyebrow and they gave him three points.", "He had a cut on his eyebrow and got three stitches.", "He had a cut in his eyelash and got three stitches.", "He had a wound in his eyebrow and they gave him three dots."], c: 1, e: "Puntos de sutura = stitches. Ceja = eyebrow; pestaña = eyelash." },
@@ -261,7 +264,7 @@ export const ORALES = {
     { lang: "es", t: "Le pedí que no se fuera, pero ya se había montado en la motocicleta." },
     { lang: "es", t: "Es necesario que la víctima sea examinada nuevamente por un médico legista." }
   ],
-  vocabulario_general: [
+  integridad_mensaje: [
     { lang: "en", t: "He had a black eye, a split lip, and bruises all over his ribs." },
     { lang: "en", t: "I left my wallet and my car keys on the kitchen counter, next to the microwave." },
     { lang: "en", t: "My brother-in-law borrowed my pickup truck and returned it with a dent in the bumper." },
@@ -339,10 +342,10 @@ export const ORALES = {
 //  oral: "interp" (interpretar y evaluar con IA), "terminos" (tarjetas habladas), "numeros" (cifras), "shadow" (repetir), null
 export const MODO = {
   gramatica: { quiz: "propio", oral: "interp" },
-  vocabulario_general: { quiz: "propio", oral: "interp" },
+  integridad_mensaje: { quiz: "propio", oral: "interp" },
   fluidez: { quiz: null, oral: "interp" },
   pronunciacion: { quiz: null, oral: "shadow" },
-  comprension: { quiz: "pasajes", oral: null },
+  comprension: { quiz: "auditivo", oral: null },
   terminologia_juridica: { quiz: "glosario", oral: "terminos" },
   interferencias: { quiz: "propio", oral: "interp" },
   numeros_nombres_fechas: { quiz: "propio", oral: "numeros" },
@@ -351,6 +354,6 @@ export const MODO = {
 };
 
 export const ICONOS = {
-  gramatica: "📐", vocabulario_general: "📚", fluidez: "🌊", pronunciacion: "👄", comprension: "👂",
+  gramatica: "📐", integridad_mensaje: "🧩", fluidez: "🌊", pronunciacion: "👄", comprension: "👂",
   terminologia_juridica: "⚖️", interferencias: "🔀", numeros_nombres_fechas: "🔢", modismos_expresiones: "💬", estilo_registro: "🎩"
 };

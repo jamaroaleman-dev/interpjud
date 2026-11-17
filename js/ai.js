@@ -12,16 +12,16 @@ export const MODELS = [
 ];
 
 export const CRITERIOS = [
-  ["gramatica", "Gramática", "Estructura gramatical correcta: artículos, pronombres, tiempos verbales, concordancia de género y número."],
-  ["vocabulario_general", "Vocabulario general", "Vocabulario amplio, preciso y adecuado al contexto, sin afectar la fidelidad."],
-  ["fluidez", "Fluidez", "Producción continua, sin pausas largas, titubeos, muletillas, falsos comienzos ni autocorrecciones excesivas; ritmo adecuado."],
-  ["pronunciacion", "Pronunciación", "Pronunciación clara e inteligible en el idioma de destino (acentuación, sonidos, entonación)."],
-  ["comprension", "Comprensión", "Comprende íntegramente el mensaje original: transmite todo el contenido sin omisiones, adiciones ni distorsiones."],
-  ["terminologia_juridica", "Terminología jurídica", "Traslada con precisión términos y expresiones legales al idioma de destino, con equivalentes del sistema dominicano."],
-  ["interferencias", "Interferencias idiomáticas", "Evita falsos cognados, calcos y estructuras impropias del otro idioma."],
-  ["numeros_nombres_fechas", "Números, nombres y fechas", "Preserva con exactitud cifras, montos, fechas, horas, nombres propios, direcciones y demás datos."],
-  ["modismos_expresiones", "Modismos y expresiones", "Interpreta modismos y expresiones coloquiales por su sentido, sin traducciones literales incorrectas."],
-  ["estilo_registro", "Estilo/registro", "Conserva el registro (formal, técnico, coloquial) y la primera persona del hablante, sin alterar el tono."]
+  ["gramatica", "Gramática", "La estructura gramatical utilizada no dificulta la comprensión. Uso correcto de los artículos y pronombres. Los verbos son conjugados en los tiempos correctos. Relación entre género y número."],
+  ["integridad_mensaje", "Integridad del mensaje", "Reproduce el mensaje de forma completa, evitando omisiones, adiciones o modificaciones que alteren su contenido original."],
+  ["fluidez", "Fluidez", "Interpreta con fluidez, agilidad y precisión, manteniendo un ritmo de comunicación adecuado."],
+  ["pronunciacion", "Pronunciación", "Interpreta de forma correcta, clara y precisa, lo cual no afecta la comprensión del mensaje."],
+  ["comprension", "Comprensión", "Comprende adecuadamente el mensaje original y reproduce su contenido de forma precisa, minimizando la necesidad de aclaraciones o repeticiones."],
+  ["terminologia_juridica", "Terminología jurídica", "Emplea adecuadamente la terminología jurídica y procesal correspondiente al contexto de la intervención."],
+  ["interferencias", "Interferencias idiomáticas", "Evita la transferencia indebida de estructuras gramaticales, vocabulario, significados o expresiones propias de la lengua de origen que afecten la naturalidad, precisión o corrección del mensaje en la lengua de destino."],
+  ["numeros_nombres_fechas", "Números, nombres propios y fechas", "Los números, nombres, fechas y direcciones son preservados y traducidos con precisión."],
+  ["modismos_expresiones", "Modismos y expresiones", "Interpreta correctamente modismos, refranes, frases hechas y expresiones idiomáticas, transmitiendo su significado de forma natural y equivalente en la lengua de destino."],
+  ["estilo_registro", "Estilo/registro", "Conserva el estilo del discurso (formal, casual, informal) utilizado por el emisor, sin distorsionar el mensaje."]
 ];
 
 async function loadSDK() {
@@ -104,14 +104,19 @@ const EVAL_SCHEMA = obj({
   consejo_proxima_practica: str
 });
 
-const EVAL_SYSTEM = `Eres examinador(a) del Concurso para la Designación de Intérpretes Judiciales del Poder Judicial de la República Dominicana (Escuela Nacional de la Judicatura, convocatoria 2026). Evalúas la prueba ORAL (interpretación consecutiva, simultánea y traducción a la vista, español ↔ inglés).
+const EVAL_SYSTEM = `Eres examinador(a) del Concurso para la Designación de Intérpretes Judiciales del Poder Judicial de la República Dominicana (Escuela Nacional de la Judicatura, convocatoria 2026). Evalúas la prueba ORAL según la «Guía para la evaluación oral y rúbrica de evaluación» oficial: una simulación de actuación judicial con ejercicios de INTERPRETACIÓN CONSECUTIVA entre español e inglés (máximo 20 minutos; se permite tomar notas; sin diccionarios). Si recibes ejercicios de otra modalidad (simultánea o a la vista), evalúalos con los mismos criterios.
 
-El/la aspirante necesita al menos 90/100 en el oral para alcanzar el promedio global de 80. Tu trabajo es prepararle con una evaluación HONESTA y EXIGENTE: no infles notas. Un 5 significa nivel profesional de intérprete judicial certificado en ese criterio.
+Cada criterio vale de 0 a 5; los 10 suman 50 puntos que se convierten a 100. El/la aspirante necesita al menos 90/100 (45/50) en el oral para alcanzar el promedio global de 80. Tu trabajo es prepararle con una evaluación HONESTA y EXIGENTE: no infles notas. Un 5 significa nivel profesional de intérprete judicial certificado en ese criterio.
 
-Escala por criterio (igual a la rúbrica oficial de la ENJ):
-5 – Cumplimiento total. 4 – Cumplimiento parcial alto. 3 – Cumplimiento parcial bajo. 2 – Presenta oportunidades de mejora. 1 – Deficiencias significativas. 0 – No cumple.
+Escala oficial por criterio:
+5 – Interpretación precisa, completa y natural.
+4 – Errores menores que no afectan el contenido esencial del mensaje.
+3 – Errores que afectan parcialmente el mensaje, pero permiten preservar su contenido esencial.
+2 – Errores significativos que afectan la fidelidad o comprensión del mensaje.
+1 – Errores graves que comprometen sustancialmente la fidelidad o comprensión del mensaje.
+0 – Interpretación incompleta o insuficiente para ser evaluada.
 
-Criterios (Bases, art. 6.2, párrafo II):
+Criterios oficiales (Guía para la evaluación oral, ENJ 2026):
 ${CRITERIOS.map(([k, n, d]) => `- ${k} (${n}): ${d}`).join("\n")}
 
 Cómo leer los datos que recibes:
@@ -119,7 +124,9 @@ Cómo leer los datos que recibes:
 - El reconocimiento de voz suele omitir muletillas ("eh", "um"); por eso la fluidez se evalúa principalmente con las métricas medidas del audio: latencia de inicio, pausas mayores de 1 s, pausa más larga, palabras por minuto y tiempo hablando frente a la duración del original.
 - La pronunciación es una ESTIMACIÓN: no escuchas el audio. Infiérela de la confianza del reconocimiento (confianza_asr; < 0.80 es preocupante) y de palabras transcritas que no tienen sentido en contexto pero suenan parecido a la palabra correcta (p. ej. "sheet" por "seat"), señal de que el reconocedor no entendió. Si no hay suficiente evidencia, no bajes de 4 por pronunciación y dilo en el comentario.
 - Si una transcripción está vacía o muy corta, probablemente no hubo respuesta o falló el micrófono: refléjalo en comprensión y fluidez, y dilo.
-- En consecutiva el/la intérprete debe hablar en primera persona (como el hablante), sin "dice que".
+- La guía exige interpretar en DISCURSO DIRECTO, en la misma persona gramatical del orador, sin asumir funciones de intermediación, explicación o relato ("él dice que…", resumir o explicar = penaliza en estilo_registro e integridad_mensaje).
+- integridad_mensaje: cada omisión, adición o modificación de contenido baja la nota (un dato omitido ya impide el 5).
+- Si las métricas indican repeticiones_pedidas > 0, refléjalo en comprensión (la guía valora minimizar aclaraciones o repeticiones).
 - Usa terminología jurídica dominicana (Código Procesal Penal, Ley 76-02 modificada por la Ley 10-15): medida de coerción, imputado, Ministerio Público, garantía económica, impedimento de salida, etc.
 
 En "segmentos", analiza CADA segmento (usa su índice). En "errores", lista concretamente omisiones, adiciones, distorsiones, términos mal traducidos, interferencias, números/nombres alterados (tipo: omision | adicion | distorsion | terminologia | interferencia | numero_nombre_fecha | modismo | registro | gramatica). "version_modelo" es una interpretación modelo profesional del segmento al idioma de destino.
@@ -201,10 +208,10 @@ const CRIT_EVAL_SCHEMA = obj({
 export async function evaluateCriterion({ settings, criterio, items, onProgress }) {
   const c = CRITERIOS.find(([k]) => k === criterio);
   const system = `Eres examinador(a) del examen oral de intérpretes judiciales del Poder Judicial dominicano (ENJ, 2026), español ↔ inglés. En esta prueba evalúas UN SOLO criterio: «${c[1]}» — ${c[2]}
-Califica cada ítem de 0 a 5 SOLO en ese criterio (5 = nivel de intérprete judicial certificado; 4 = parcial alto; 3 = parcial bajo; 2 = oportunidades de mejora; 1 = deficiencias significativas; 0 = no cumple o no respondió). Sé exigente y honesto/a: el aspirante necesita 90/100.
+Califica cada ítem de 0 a 5 SOLO en ese criterio con la escala oficial: 5 = precisa, completa y natural; 4 = errores menores que no afectan el contenido esencial; 3 = errores que afectan parcialmente el mensaje pero preservan lo esencial; 2 = errores significativos que afectan la fidelidad o comprensión; 1 = errores graves; 0 = incompleta o insuficiente para evaluar. Sé exigente y honesto/a: el aspirante necesita 45/50 (90/100). La «version_de_referencia_no_unica», si existe, es solo una guía: otras formas correctas también valen 5. El examen real es consecutiva en discurso directo (primera persona del orador).
 La versión del aspirante es una transcripción automática: ignora puntuación, mayúsculas y ortografía. ${criterio === "fluidez" ? "Para fluidez, básate sobre todo en las métricas medidas: latencia de inicio (ideal < 2 s), pausas > 1 s, pausa más larga, palabras por minuto (ideal 110–150) y si completó el mensaje." : ""}
 En «problema» describe brevemente el fallo relacionado con este criterio (vacío si no hay). En «sugerido» da una versión correcta del fragmento problemático o de todo el ítem. «nota» global = tu calificación del criterio de 0 a 5 para el conjunto. «consejos»: máximo 3, concretos. Responde en español.`;
-  const user = JSON.stringify({ criterio: c[1], items: items.map((it, i) => ({ indice: i, idioma_origen: it.lang === "es" ? "español" : "inglés", idioma_destino: it.lang === "es" ? "inglés" : "español", original: it.t, transcripcion_aspirante: it.transcripcion || "(vacío)", metricas: it.metricas })) }, null, 1);
+  const user = JSON.stringify({ criterio: c[1], items: items.map((it, i) => ({ indice: i, idioma_origen: it.lang === "es" ? "español" : "inglés", idioma_destino: it.lang === "es" ? "inglés" : "español", original: it.t, ...(it.ref ? { version_de_referencia_no_unica: it.ref } : {}), transcripcion_aspirante: it.transcripcion || "(vacío)", metricas: it.metricas })) }, null, 1);
   const r = await callJSON({ settings, system, user, schema: CRIT_EVAL_SCHEMA, maxTokens: 8000, effort: "low", onProgress });
   r.nota = Math.max(0, Math.min(5, Math.round(Number(r.nota) || 0)));
   for (const it of r.items || []) it.nota = Math.max(0, Math.min(5, Math.round(Number(it.nota) || 0)));

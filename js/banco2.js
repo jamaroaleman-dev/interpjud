@@ -17,7 +17,7 @@ const QUIZ2 = {
     { d: "es", q: "«Le pregunté dónde estaba la noche del crimen.»", o: ["I asked him where was he the night of the crime.", "I asked him where he was on the night of the crime.", "I asked to him where he was in the night of the crime.", "I asked him where he were the night of the crime."], c: 1, e: "Pregunta indirecta: sin inversión (where he was). «On the night of»." },
     { d: "es", q: "«Ninguno de los testigos vio el arma.»", o: ["None of the witnesses saw the weapon.", "Any of the witnesses didn't see the weapon.", "No one of the witnesses didn't see the gun.", "None of the witnesses didn't see the weapon."], c: 0, e: "«None of» sin doble negación." }
   ],
-  vocabulario_general: [
+  integridad_mensaje: [
     { d: "en", q: "«He was wearing a hoodie and sweatpants.»", o: ["Llevaba una sudadera con capucha y pantalones deportivos.", "Llevaba un gorro y pantalones de sudor.", "Llevaba una chaqueta y unos jeans.", "Llevaba un abrigo y pantalones cortos."], c: 0, e: "Hoodie = sudadera con capucha (en RD también «hoodie»); sweatpants = pantalón deportivo/mono." },
     { d: "en", q: "«My nephew was babysitting my daughter.»", o: ["Mi sobrino estaba cuidando a mi hija.", "Mi nieto estaba cuidando a mi hija.", "Mi primo estaba bañando a mi hija.", "Mi sobrino estaba sentado con mi hija."], c: 0, e: "Nephew = sobrino; grandson = nieto; babysit = cuidar niños." },
     { d: "en", q: "«The bullet grazed his shoulder.»", o: ["La bala le atravesó el hombro.", "La bala le rozó el hombro.", "La bala le quebró el hombro.", "La bala se le alojó en el hombro."], c: 1, e: "Graze = rozar. Go through = atravesar; lodge = alojarse." },
@@ -101,7 +101,7 @@ const ORALES2 = {
     { lang: "es", t: "Cuando llegó la policía, los asaltantes ya se habían marchado con todo lo que encontraron." },
     { lang: "es", t: "No creo que el testigo haya visto el rostro del agresor desde esa distancia." }
   ],
-  vocabulario_general: [
+  integridad_mensaje: [
     { lang: "en", t: "He pulled into the driveway, popped the trunk, and took out a duffel bag." },
     { lang: "en", t: "My grandmother tripped on the stairs and broke her hip." },
     { lang: "en", t: "The kids were playing on the sidewalk when the van ran over the curb." },

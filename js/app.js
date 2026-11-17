@@ -1,4 +1,5 @@
 import "./banco2.js"; // banco ampliado (se fusiona con los bancos base)
+import { ORACIONES } from "./banco3.js"; // banco grande: glosario, falsos cognados, modismos, oraciones con versión modelo
 import { DIALOGOS, DISCURSOS, VISTAS, GLOSARIO, MODISMOS, ESCENARIOS } from "./content.js";
 import * as A from "./audio.js";
 import { CRITERIOS, MODELS, evaluate, generate, testKey } from "./ai.js";
@@ -144,12 +145,26 @@ function streak() {
   }
   return n;
 }
-function daysToExam() {
-  const target = new Date((S.examDate || "2026-11-10") + "T00:00:00");
-  const now = new Date();
-  const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.round((target - todayMid) / 86400000);
+// Examen oral: miércoles 18 de noviembre de 2026, 1:30 p. m., hora de RD (UTC−4). Escuela Nacional de la Judicatura.
+const EXAM_AT = new Date("2026-11-18T13:30:00-04:00").getTime();
+function examLeft() {
+  const ms = EXAM_AT - Date.now();
+  if (ms <= 0) return null;
+  const t = Math.floor(ms / 1000), d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return { ms, d, h, m, sec, short: `${d ? d + "d " : ""}${p(h)}:${p(m)}:${p(sec)}`, hours: ms / 3600000 };
 }
+function daysToExam() { const l = examLeft(); return l ? Math.ceil(l.ms / 86400000) - 1 : -1; }
+function tickExam() {
+  const l = examLeft();
+  const hdr = $("#hdrTimer");
+  if (hdr) hdr.textContent = l ? `⏳ ${l.short}` : "¡Examen!";
+  const big = $("#cdBig");
+  if (big) big.textContent = l ? `${l.d}d ${String(l.h).padStart(2, "0")}h ${String(l.m).padStart(2, "0")}m ${String(l.sec).padStart(2, "0")}s` : "¡Es hoy! Éxito 💪";
+  const hrs = $("#cdHrs");
+  if (hrs && l) hrs.textContent = `${Math.floor(l.hours)} horas restantes`;
+}
+setInterval(tickExam, 1000);
 
 routes.home = () => {
   setTitle("InterpJud · Oral");
@@ -159,19 +174,23 @@ routes.home = () => {
   const dte = daysToExam();
   const d = DAILY[today()] || {};
   const plan = [
-    ["consec", "1 diálogo de consecutiva", "#consec"],
-    ["simul", "1 discurso de simultánea", "#simul"],
-    ["vista", "1 traducción a la vista", "#vista"],
+    ["simulacro", "1 simulacro de 20 min (solo consecutiva)", "#simulacro"],
+    ["consec", "Diálogos de consecutiva con libreta", "#consec"],
+    ["criterios", "Integridad del mensaje y tus criterios débiles", "#criterios"],
     ["numeros", "1 ronda de números, nombres y fechas", "#numeros"],
-    ["terminos", "1 ronda de terminología", "#terminos"],
-    ["criterios", "1 práctica o evaluación de un criterio", "#criterios"]
+    ["terminos", "1 ronda de terminología", "#terminos"]
   ];
   const weak = weakest();
   view.innerHTML = `
+    <div class="card" style="text-align:center;background:var(--primary-soft);border-color:var(--primary)">
+      <div class="muted small">Examen oral · miércoles 18 de noviembre · 1:30 p. m. · ENJ (Gascue)</div>
+      <div id="cdBig" style="font-size:32px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0;color:var(--primary)">…</div>
+      <div class="small"><span id="cdHrs"></span> · Llega a la 1:00 p. m. con tu <b>cédula</b>, ropa formal, libreta y bolígrafo.</div>
+      <div class="muted small" style="margin-top:6px">Solo consecutiva ES ⇄ EN · máx. 20 min · 10 criterios × 5 = 50 pts → ×2 = 100. Necesitas <b>45/50 (90)</b>: promedio 4.5 por criterio.</div>
+    </div>
     <div class="card">
       <div class="stats">
-        <div class="stat"><b>${dte > 0 ? dte : dte === 0 ? "¡Hoy!" : "—"}</b><span>${S.examDate ? "días para tu oral" : "días para el inicio del oral (10 nov)"}</span></div>
-        <div class="stat"><b class="${scoreClass(avg)}" style="color:var(--${avg == null ? "text" : scoreClass(avg)})">${avg ?? "—"}</b><span>promedio últimas 5 (meta 90)</span></div>
+        <div class="stat"><b class="${scoreClass(avg)}" style="color:var(--${avg == null ? "text" : scoreClass(avg)})">${avg ?? "—"}</b><span>promedio últimas 5 (meta 90 = 45/50)</span></div>
         <div class="stat"><b>${avg == null ? "—" : ((S.escrito + avg) / 2).toFixed(1)}</b><span>global estimado (escrito ${S.escrito})</span></div>
         <div class="stat"><b>${streak()}🔥</b><span>días seguidos · ${d.min ? Math.round(d.min) : 0} min hoy</span></div>
       </div>
@@ -182,24 +201,29 @@ routes.home = () => {
 
     <div class="card">
       <h2>Simulacro del examen</h2>
-      <p class="muted small" style="margin:0 0 10px">Consecutiva + simultánea + traducción a la vista, de corrido (~20–30 min), con evaluación completa sobre 100.</p>
+      <p class="muted small" style="margin:0 0 10px">Igual que el examen: simulación de audiencia, <b>solo interpretación consecutiva</b> español ⇄ inglés, con reloj de <b>20 minutos</b> y evaluación con los 10 criterios oficiales (sobre 50 → 100).</p>
       <button class="btn primary block" onclick="location.hash='#simulacro'">▶ Hacer un simulacro</button>
     </div>
 
     <div class="card">
       <h2>Los 10 criterios del oral</h2>
-      <p class="muted small" style="margin:0 0 10px">Práctica y evaluación individual de cada aspecto: gramática, vocabulario, fluidez, pronunciación, comprensión, terminología, interferencias, números, modismos y registro.</p>
+      <p class="muted small" style="margin:0 0 10px">Práctica y evaluación individual de cada aspecto: gramática, integridad del mensaje, fluidez, pronunciación, comprensión, terminología, interferencias, números, modismos y registro.</p>
       <button class="btn block" onclick="location.hash='#criterios'">📋 Ir a los 10 criterios</button>
     </div>
 
     <div class="grid">
       <button class="tile" onclick="location.hash='#consec'"><span class="ic">🗣️</span><b>Consecutiva</b><span>Diálogos de audiencia ES ⇄ EN</span></button>
-      <button class="tile" onclick="location.hash='#simul'"><span class="ic">🎧</span><b>Simultánea</b><span>Discursos continuos, con audífonos</span></button>
-      <button class="tile" onclick="location.hash='#vista'"><span class="ic">📄</span><b>A la vista</b><span>Lee un documento y dilo en el otro idioma</span></button>
       <button class="tile" onclick="location.hash='#numeros'"><span class="ic">🔢</span><b>Números y nombres</b><span>Cifras, fechas, montos, cédulas</span></button>
       <button class="tile" onclick="location.hash='#terminos'"><span class="ic">⚖️</span><b>Terminología</b><span>Tarjetas habladas y modismos</span></button>
       <button class="tile" onclick="location.hash='#progreso'"><span class="ic">📈</span><b>Progreso</b><span>Historial, notas, debilidades</span></button>
     </div>
+    <details class="card" style="margin-top:14px"><summary>Extra (no entra en el examen): simultánea y a la vista</summary>
+      <p class="muted small">La guía oficial dice que el oral es solo consecutiva. Úsalas solo para ganar agilidad.</p>
+      <div class="grid">
+        <button class="tile" onclick="location.hash='#simul'"><span class="ic">🎧</span><b>Simultánea</b><span>Discursos continuos, con audífonos</span></button>
+        <button class="tile" onclick="location.hash='#vista'"><span class="ic">📄</span><b>A la vista</b><span>Lee un documento y dilo en el otro idioma</span></button>
+      </div>
+    </details>
 
     <div class="card" style="margin-top:14px">
       <h2>Plan de hoy</h2>
@@ -347,53 +371,44 @@ routes.simulacro = () => {
   setTitle("Simulacro");
   view.innerHTML = `
     <div class="card">
-      <h2>Simulacro completo</h2>
-      <p class="muted small">Tres partes de corrido, sin ver los textos: <b>1)</b> consecutiva (diálogo de audiencia), <b>2)</b> simultánea (con audífonos), <b>3)</b> traducción a la vista. Al final, una evaluación con la rúbrica de 10 criterios sobre 100.</p>
+      <h2>Simulacro del examen (20 min)</h2>
+      <p class="muted small">Como dice la guía oficial: simulación de una actuación judicial con <b>interpretación consecutiva</b> español ⇄ inglés, máximo <b>20 minutos</b>. Usa libreta y bolígrafo; nada de diccionario. Interpreta en <b>discurso directo</b> (primera persona del orador). Cada repetición que pidas cuenta en contra en Comprensión. Al final: evaluación con los 10 criterios (0–5 cada uno, total sobre 50 → 100).</p>
       <label class="f"><span>Contenido</span>
         <select id="mSrc">
-          <option value="ia" ${S.apiKey ? "selected" : "disabled"}>Nuevo, generado por Claude (recomendado)</option>
-          <option value="bank" ${S.apiKey ? "" : "selected"}>Del banco integrado (aleatorio)</option>
+          <option value="ia" ${S.apiKey && navigator.onLine ? "selected" : "disabled"}>Nuevo, generado por Claude</option>
+          <option value="bank" ${S.apiKey && navigator.onLine ? "" : "selected"}>Del banco integrado (funciona sin internet)</option>
         </select></label>
       <label class="f"><span>Nivel</span><select id="mNivel"><option value="2" selected>Examen</option><option value="3">Avanzado</option></select></label>
-      <button class="btn primary block" id="mGo">▶ Empezar simulacro</button>
+      <label class="check"><input type="checkbox" id="mRep" ${S.allowRepeat ? "checked" : ""}> Permitir pedir repetición (penaliza Comprensión, como en el examen)</label>
+      <button class="btn primary block" id="mGo">▶ Empezar simulacro de 20 minutos</button>
       <div id="mOut"></div>
     </div>`;
+  $("#mRep").onchange = (e) => { S.allowRepeat = e.target.checked; saveSettings(); };
   $("#mGo").onclick = async () => {
     primeAudio();
     const out = $("#mOut");
-    const pick = (a) => a[Math.floor(Math.random() * a.length)];
-    let c, s, v;
+    const pool = [...DIALOGOS].sort(() => Math.random() - 0.5);
+    let ds;
     if ($("#mSrc").value === "ia") {
       $("#mGo").disabled = true;
-      out.innerHTML = `<div class="spinner"></div><p class="muted small" style="text-align:center">Claude está preparando tu examen (3 partes)…</p>`;
+      out.innerHTML = `<div class="spinner"></div><p class="muted small" style="text-align:center">Claude está preparando tu audiencia…</p>`;
       try {
         const nivel = +$("#mNivel").value;
         const usados = [...GENERATED.map((x) => x.titulo), ...HIST.map((h) => h.titulo)];
         const enfoque = weakest().map(([, n]) => n).join(", ");
-        const simLang = Math.random() < 0.5 ? "es" : "en";
-        [c, s, v] = await Promise.all([
-          generate({ settings: S, tipo: "consec", nivel, usados, enfoque }),
-          generate({ settings: S, tipo: "simul", nivel, usados, idioma: simLang, enfoque }),
-          generate({ settings: S, tipo: "vista", nivel, usados, idioma: other(simLang), enfoque })
-        ]);
-        for (const [g, t] of [[c, "consec"], [s, "simul"], [v, "vista"]]) { g.id = "g" + uid(); g.tipo = t; g.ia = true; GENERATED.push(g); }
+        ds = await Promise.all([generate({ settings: S, tipo: "consec", nivel, usados, enfoque }), generate({ settings: S, tipo: "consec", nivel, usados, enfoque })]);
+        for (const g of ds) { g.id = "g" + uid(); g.tipo = "consec"; g.ia = true; GENERATED.push(g); }
         GENERATED = GENERATED.slice(-60); LS.set("generated", GENERATED);
       } catch (e) {
         out.innerHTML = `<div class="err">${esc(e.message)}</div>`;
         $("#mGo").disabled = false;
         return;
       }
-    } else {
-      c = pick(DIALOGOS); s = pick(DISCURSOS); v = pick(VISTAS.filter((x) => x.idioma !== s.idioma));
-    }
+    } else ds = pool.slice(0, 3);
     startExercise({
-      srcId: "mock-" + uid(), tipo: "simulacro", tipoLabel: "Simulacro completo del examen oral (consecutiva + simultánea + a la vista)",
-      titulo: `Simulacro: ${c.titulo}`, contexto: c.contexto,
-      parts: [
-        { modalidad: "consecutiva", turnos: c.turnos, titulo: c.titulo },
-        { modalidad: "simultanea", idioma: s.idioma, texto: s.texto, titulo: s.titulo },
-        { modalidad: "vista", idioma: v.idioma, texto: v.texto, titulo: v.titulo }
-      ]
+      srcId: "mock-" + uid(), tipo: "simulacro", tipoLabel: "Simulacro del examen oral: simulación de actuación judicial, interpretación consecutiva español ⇄ inglés (máx. 20 min)",
+      titulo: `Simulacro: ${ds[0].titulo}`, contexto: ds.map((d) => d.contexto).join(" / "), limitMin: 20,
+      parts: ds.map((d) => ({ modalidad: "consecutiva", turnos: d.turnos, titulo: d.titulo }))
     }, { exam: true });
   };
 };
@@ -440,12 +455,17 @@ async function startExercise(ex, { exam = false } = {}) {
   view.innerHTML = stageHTML(ex);
   keepAwake(true);
   const t0 = Date.now();
+  let finishRequested = false, timeUp = false;
   const clock = setInterval(() => {
     const s = Math.floor((Date.now() - t0) / 1000);
-    const el = $("#sClock"); if (el) el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    const el = $("#sClock");
+    if (ex.limitMin) {
+      const r = Math.max(0, ex.limitMin * 60 - s);
+      if (el) { el.textContent = `⏱ ${Math.floor(r / 60)}:${String(r % 60).padStart(2, "0")}`; el.className = "pill " + (r <= 60 ? "bad" : r <= 300 ? "warn" : ""); }
+      if (r === 0 && !timeUp) { timeUp = true; finishRequested = true; toast("⏱ Se acabaron los 20 minutos. Pasando a la evaluación.", 5000); sess.abort(); }
+    } else if (el) el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   }, 1000);
 
-  let finishRequested = false;
   $("#sPause").onclick = () => {
     if (sess.paused) { sess.resume(); $("#sPause").textContent = "⏸ Pausar"; }
     else { sess.paused = true; $("#sPause").textContent = "▶ Continuar"; toast("Se pausará al terminar el paso actual."); }
@@ -473,7 +493,7 @@ async function startExercise(ex, { exam = false } = {}) {
       ui.part(ex.parts.length > 1 ? `Parte ${pi + 1}/${ex.parts.length} · ${part.modalidad}` : part.modalidad);
       if (ex.parts.length > 1 && pi > 0) {
         ui.who(""); ui.dir(null); ui.src(""); ui.live(null);
-        ui.state(`Siguiente: <b>${part.modalidad}</b>`);
+        ui.state(`Siguiente: <b>${part.titulo ? esc(part.titulo) : part.modalidad}</b>`);
         ui.ctl(`<button class="btn primary" id="nx">Continuar ▶</button>`);
         if (part.modalidad === "simultanea") ui.src(`<div class="note">🎧 Ponte los audífonos ahora.</div>`);
         await new Promise((r) => { $("#nx").onclick = r; sess.waiters.push(r); });
@@ -671,7 +691,7 @@ async function finishExercise(ex, segs, minutes) {
   HIST.push(rec);
   saveHist();
   logDaily(ex.tipo === "simulacro" ? "consec" : ex.tipo, minutes);
-  if (ex.tipo === "simulacro") { logDaily("simul"); logDaily("vista"); }
+  if (ex.tipo === "simulacro") logDaily("simulacro");
   if (S.apiKey && !navigator.onLine) { rec.pendingEval = true; saveHist(); toast("Sin internet: la evaluación quedó pendiente y se hará sola al conectarte.", 5000); go("#reporte/" + rec.id); }
   else if (S.apiKey) await runEvaluation(rec);
   else go("#reporte/" + rec.id);
@@ -731,7 +751,8 @@ routes.reporte = async (id) => {
   const ev = rec.eval;
   const n = rec.nota100;
   const crit = ev ? CRITERIOS.map(([k, name]) => {
-    const p = ev.puntuaciones[k] || { nota: 0, comentario: "" };
+    if (!ev.puntuaciones[k]) return `<div class="crit"><span class="n">${name}</span><span class="v muted">—</span><div class="bar"><i style="width:0"></i></div><span class="c">No evaluado en este reporte (criterio de la rúbrica oficial nueva).</span></div>`;
+    const p = ev.puntuaciones[k];
     const cls = p.nota >= 5 ? "good" : p.nota >= 4 ? "warn" : "bad";
     return `<div class="crit"><span class="n">${name}</span><span class="v" style="color:var(--${cls})">${p.nota}/5</span><div class="bar"><i style="width:${p.nota * 20}%;background:var(--${cls})"></i></div><span class="c">${esc(p.comentario)}</span></div>`;
   }).join("") : "";
@@ -1263,6 +1284,7 @@ function speechTexts() {
   for (const [en, es] of [...GLOSARIO, ...MYTERMS]) { add(en.split("|")[0], "en"); add(es.split("|")[0], "es"); }
   for (const [a, b, cat] of MODISMOS) { const [en, es] = cat === "Dominicano" ? [b, a] : [a, b]; add(en.split("|")[0], "en"); add(es.split("|")[0], "es"); }
   for (const l of ["en", "es"]) for (const [w] of PARES_PRON[l]) add(w.replaceAll("/", ","), l);
+  for (const o of ORACIONES) { add(o.t, o.lang); add(o.ref, o.lang === "es" ? "en" : "es"); }
   return [...out.values()];
 }
 
