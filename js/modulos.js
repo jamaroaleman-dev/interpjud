@@ -514,7 +514,7 @@ async function runOral(k, dir, exam, onDone, override) {
     await A.speak(it.t, it.lang, { rate: C.rateOf(it.lang), voiceName: C.voiceOf(it.lang), signal: sess.ctrl.signal });
     if (sess.aborted) break;
     A.beep();
-    const res = await C.recordTurn({ lang: outLang, sess, ui, maxSec: it.term ? 12 : Math.max(30, it.t.split(/\s+/).length * 1.8), maxWaitSec: it.term ? 7 : 12, silenceSec: it.term ? 1.6 : it.shadow ? 2 : C.S.silenceSec });
+    const res = await C.recordTurn({ lang: outLang, sess, ui, retry: !exam, maxSec: it.term ? 12 : Math.max(30, it.t.split(/\s+/).length * 1.8), maxWaitSec: it.term ? 7 : 12, silenceSec: it.term ? 1.6 : it.shadow ? 2 : C.S.silenceSec });
     if (sess.aborted && !res.transcript) break;
     const rec = { ...it, transcripcion: res.transcript, metricas: res.metrics };
     // Puntuación local cuando aplica

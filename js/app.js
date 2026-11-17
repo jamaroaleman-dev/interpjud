@@ -525,19 +525,27 @@ async function startExercise(ex, { exam = false } = {}) {
   await finishExercise(ex, segs, minutes);
 }
 
-async function recordTurn({ lang, sess, ui, autoStop = true, maxSec = 120, maxWaitSec = 15, silenceSec = S.silenceSec, extraButtons = "" }) {
-  const rec = new A.Recorder({
-    lang: recLang(lang), useAudio: S.useAudio, autoStop, silenceSec, maxWaitSec, maxSec,
-    onInterim: (t) => ui.live(t), onLevel: (v) => ui.meter(v)
-  });
-  sess.rec = rec;
-  ui.live("");
-  ui.state(`<span class="dot"></span> Tu turno — habla en ${lang === "es" ? "español" : "inglés"}`);
-  ui.ctl(`<button class="btn rec" id="stopBtn">✓ Terminé</button>${extraButtons}`);
-  $("#stopBtn").onclick = () => rec.stop("manual");
-  const res = await rec.start();
-  ui.meter(0);
-  sess.rec = null;
+// retry: muestra «Borrar y repetir» mientras grabas; borra lo transcrito y vuelve a grabar desde cero.
+async function recordTurn({ lang, sess, ui, autoStop = true, maxSec = 120, maxWaitSec = 15, silenceSec = S.silenceSec, extraButtons = "", retry = false, wire }) {
+  let res;
+  for (;;) {
+    const rec = new A.Recorder({
+      lang: recLang(lang), useAudio: S.useAudio, autoStop, silenceSec, maxWaitSec, maxSec,
+      onInterim: (t) => ui.live(t), onLevel: (v) => ui.meter(v)
+    });
+    sess.rec = rec;
+    ui.live("");
+    ui.state(`<span class="dot"></span> Tu turno — habla en ${lang === "es" ? "español" : "inglés"}`);
+    ui.ctl(`<button class="btn rec" id="stopBtn">✓ Terminé</button>${retry ? `<button class="btn" id="retryBtn">🗑 Borrar y repetir</button>` : ""}${extraButtons}`);
+    $("#stopBtn").onclick = () => rec.stop("manual");
+    const rb = $("#retryBtn"); if (rb) rb.onclick = () => rec.stop("retry");
+    wire?.(rec);
+    res = await rec.start();
+    ui.meter(0);
+    sess.rec = null;
+    if (res.reason === "retry" && !sess.aborted) { ui.live(""); ui.state("↺ Borrado. Dilo otra vez desde cero…"); await new Promise((r) => setTimeout(r, 500)); A.beep(990, 90); continue; }
+    break;
+  }
   if (res.recError && res.recError !== "no-speech" && res.recError !== "aborted") {
     toast(`Reconocimiento de voz: ${res.recError}${res.recError === "network" ? " (necesita internet)" : ""}`, 4000);
   }
@@ -905,7 +913,7 @@ async function runNumeros(dir, count) {
     await A.speak(item.text, lang, { rate: rateOf(lang), voiceName: voiceOf(lang), signal: sess.ctrl.signal });
     if (sess.aborted) break;
     A.beep();
-    const res = await recordTurn({ lang: other(lang), sess, ui, maxSec: 40, maxWaitSec: 10, silenceSec: 2.5 });
+    const res = await recordTurn({ lang: other(lang), sess, ui, maxSec: 40, maxWaitSec: 10, silenceSec: 2.5, retry: true });
     if (sess.aborted && !res.transcript) break;
     const c = checkItem(item, res.transcript);
     ok += c.okCount; total += c.total;
@@ -1011,27 +1019,33 @@ async function runTerminos(deck, dir, count) {
     await A.speak(prompt, from, { rate: rateOf(from), voiceName: voiceOf(from), signal: sess.ctrl.signal });
     if (sess.aborted) break;
     A.beep(990, 90);
-    const pRec = recordTurn({ lang: to, sess, ui, maxSec: 12, maxWaitSec: 7, silenceSec: 1.6, extraButtons: `<button class="btn" id="dk">No sé</button>` });
-    $("#dk").onclick = () => sess.rec?.stop("no-se");
-    const res = await pRec;
-    if (sess.aborted && !res.transcript) break;
-    let m = termMatch(res.transcript, answers);
-    n++;
+    let res, m, verdict, again;
     const show = (good) => {
       ui.state(good ? "✅ Correcto" : "❌");
       ui.src(`<div class="flash">${esc(prompt)}</div><div class="src" style="text-align:center"><b>${esc(answers.join(" / "))}</b><br><span class="muted small">Dijiste: ${esc(res.transcript || "(nada)")}</span></div>`);
     };
-    show(m.ok);
+    for (;;) {
+      res = await recordTurn({ lang: to, sess, ui, maxSec: 12, maxWaitSec: 7, silenceSec: 1.6, retry: true, extraButtons: `<button class="btn" id="dk">No sé</button>`, wire: (rec) => { $("#dk").onclick = () => rec.stop("no-se"); } });
+      if (sess.aborted) break;
+      m = termMatch(res.transcript, answers);
+      show(m.ok);
+      ui.ctl(`${m.ok ? `<button class="btn" id="fix">Marcar como fallo</button>` : `<button class="btn" id="fix">Lo dije bien ✓</button>`}<button class="btn" id="agn">🎙️ Decirlo otra vez</button><button class="btn primary" id="nxt">Siguiente ▶</button>`);
+      if (!m.ok) A.speak(answers[0], to, { rate: rateOf(to), voiceName: voiceOf(to), signal: sess.ctrl.signal });
+      verdict = m.ok; again = false;
+      await new Promise((r) => {
+        // No avanza solo: espera a «Siguiente» (o «Decirlo otra vez»).
+        $("#fix").onclick = () => { verdict = !verdict; show(verdict); $("#fix").disabled = true; };
+        $("#agn").onclick = () => { again = true; A.stopSpeaking(); r(); };
+        $("#nxt").onclick = () => { A.stopSpeaking(); r(); };
+        sess.waiters.push(r);
+      });
+      if (!again || sess.aborted) break;
+      ui.src(`<div class="flash">${esc(prompt)}</div>`);
+      A.beep(990, 90);
+    }
+    if (sess.aborted && !res?.transcript) break;
+    n++;
     const s = (TERMS[key(c)] ||= { ok: 0, fail: 0 });
-    ui.ctl(m.ok ? `<button class="btn" id="fix">Marcar como fallo</button><button class="btn primary" id="nxt">Siguiente ▶</button>` : `<button class="btn" id="fix">Lo dije bien ✓</button><button class="btn primary" id="nxt">Siguiente ▶</button>`);
-    A.speak(answers[0], to, { rate: rateOf(to), voiceName: voiceOf(to), signal: sess.ctrl.signal });
-    let verdict = m.ok;
-    await new Promise((r) => {
-      const to2 = 0; // no avanza solo: espera a «Siguiente»
-      $("#fix").onclick = () => { verdict = !verdict; show(verdict); $("#fix").disabled = true; clearTimeout(to2); };
-      $("#nxt").onclick = () => { clearTimeout(to2); r(); };
-      sess.waiters.push(() => { clearTimeout(to2); r(); });
-    });
     const fk = c.srcLang ? "modismos_expresiones" : "terminologia_juridica";
     const fe = { type: "term", lang: from, t: prompt, answers, term: true };
     if (verdict) { ok++; s.ok++; s.fail = Math.max(0, s.fail - 1); removeFallo(fk, fe); } else { s.fail++; missed.push(c); addFallo(fk, fe); }
