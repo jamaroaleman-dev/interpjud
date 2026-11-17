@@ -5,6 +5,7 @@ import * as A from "./audio.js";
 import { CRITERIOS, MODELS, evaluate, generate, testKey } from "./ai.js";
 import { makeItem, checkItem, termMatch } from "./drills.js";
 import { initModulos, critSummaryHTML, critPendingCount, processCritPending } from "./modulos.js";
+import { addFallo, removeFallo, countFallos } from "./fallos.js";
 import { PASAJES, ORALES, PARES_PRON } from "./criterios.js";
 
 // ====================== Estado y almacenamiento ======================
@@ -207,6 +208,7 @@ routes.home = () => {
       <button class="btn primary block" data-go="#simulacro">▶ Hacer un simulacro</button>
     </div>
 
+    ${countFallos() ? `<div class="card" style="border-color:var(--bad)"><h2>📌 Mis fallos: ${countFallos()} por repasar</h2><p class="muted small" style="margin:0 0 10px">Lo que has fallado queda guardado por criterio. Repásalo hasta que salga de la lista.</p><button class="btn block" data-go="#fallos">🔁 Repasar fallos</button></div>` : ""}
     <div class="card">
       <h2>Los 10 criterios del oral</h2>
       <p class="muted small" style="margin:0 0 10px">Práctica y evaluación individual de cada aspecto: gramática, integridad del mensaje, fluidez, pronunciación, comprensión, terminología, interferencias, números, modismos y registro.</p>
@@ -908,6 +910,7 @@ async function runNumeros(dir, count) {
     const c = checkItem(item, res.transcript);
     ok += c.okCount; total += c.total;
     log.push({ item, transcript: res.transcript, c });
+    if (c.okCount < c.total) addFallo("numeros_nombres_fechas", { type: "num", lang, t: item.text, num: item });
     ui.state(c.okCount === c.total ? "✅ ¡Todo correcto!" : `❌ ${c.okCount}/${c.total} datos correctos`);
     ui.src(`<div class="src small"><b>Original:</b> ${esc(item.text)}<br><b>Dijiste:</b> ${esc(res.transcript || "(nada)")}</div>
       <div class="row" style="gap:6px;margin-top:8px">${c.checks.map((k) => `<span class="pill ${k.ok ? "good" : "bad"}">${k.ok ? "✓" : "✗"} ${esc(k.label)}</span>`).join("")}</div>`);
@@ -930,7 +933,7 @@ async function runNumeros(dir, count) {
   setTitle("Resultado");
   view.innerHTML = `
     <div class="card" style="text-align:center"><div class="big-score" style="color:var(--${pct >= 95 ? "good" : pct >= 85 ? "warn" : "bad"})">${pct}%</div><p class="muted">${ok} de ${total} datos exactos. En el examen, cada cifra o nombre alterado cuesta puntos en «Números, nombres y fechas».</p>
-    <div class="row" style="justify-content:center"><button class="btn primary" data-go="#numeros">↺ Otra ronda</button><button class="btn" data-go="#home">⌂ Inicio</button></div></div>
+    <div class="row" style="justify-content:center"><button class="btn primary" data-go="#numeros">↺ Otra ronda</button><button class="btn" data-go="#fallos">📌 Mis fallos (${countFallos()})</button><button class="btn" data-go="#home">⌂ Inicio</button></div></div>
     <div class="card"><h2>Fallos</h2>${log.filter((l) => l.c.okCount < l.c.total).map((l) => `<div class="src small" style="margin-bottom:8px"><b>${esc(l.item.text)}</b><br>Dijiste: ${esc(l.transcript || "(nada)")}<br>${l.c.checks.filter((k) => !k.ok).map((k) => `<span class="pill bad">✗ ${esc(k.label)}</span>`).join(" ")}</div>`).join("") || `<div class="ok">¡Sin fallos!</div>`}</div>`;
 }
 
@@ -1029,7 +1032,9 @@ async function runTerminos(deck, dir, count) {
       $("#nxt").onclick = () => { clearTimeout(to2); r(); };
       sess.waiters.push(() => { clearTimeout(to2); r(); });
     });
-    if (verdict) { ok++; s.ok++; s.fail = Math.max(0, s.fail - 1); } else { s.fail++; missed.push(c); }
+    const fk = c.srcLang ? "modismos_expresiones" : "terminologia_juridica";
+    const fe = { type: "term", lang: from, t: prompt, answers, term: true };
+    if (verdict) { ok++; s.ok++; s.fail = Math.max(0, s.fail - 1); removeFallo(fk, fe); } else { s.fail++; missed.push(c); addFallo(fk, fe); }
     s.last = Date.now();
     LS.set("terms", TERMS);
   }
@@ -1044,7 +1049,7 @@ async function runTerminos(deck, dir, count) {
   setTitle("Resultado");
   view.innerHTML = `
     <div class="card" style="text-align:center"><div class="big-score" style="color:var(--${pct >= 90 ? "good" : pct >= 75 ? "warn" : "bad"})">${pct}%</div><p class="muted">${ok} de ${n} correctos.</p>
-    <div class="row" style="justify-content:center"><button class="btn primary" data-go="#terminos">↺ Otra ronda</button><button class="btn" data-go="#home">⌂ Inicio</button></div></div>
+    <div class="row" style="justify-content:center"><button class="btn primary" data-go="#terminos">↺ Otra ronda</button><button class="btn" data-go="#fallos">📌 Mis fallos (${countFallos()})</button><button class="btn" data-go="#home">⌂ Inicio</button></div><p class="muted small">Los fallos quedan guardados en «Mis fallos» de Terminología (o Modismos) para repasarlos.</p></div>
     ${missed.length ? `<div class="card"><h2>Repasa</h2><table class="e"><tr><th>Inglés</th><th>Español</th></tr>${missed.map((c) => `<tr><td>${esc(c.en.replaceAll("|", " / "))}</td><td>${esc(c.es.replaceAll("|", " / "))}</td></tr>`).join("")}</table></div>` : ""}`;
 }
 

@@ -1,9 +1,9 @@
 // Service worker: el app completo funciona sin internet.
 // Estrategia: responde desde la caché al instante y actualiza en segundo plano cuando hay conexión.
-const CACHE = "interpjud-v10";
+const CACHE = "interpjud-v11";
 const FILES = [
   "./", "index.html", "manifest.webmanifest",
-  "js/app.js", "js/audio.js", "js/ai.js", "js/content.js", "js/drills.js", "js/criterios.js", "js/modulos.js", "js/banco2.js", "js/banco3.js", "js/banco3a.js", "js/banco3b.js", "js/banco3c.js", "js/banco3d.js",
+  "js/app.js", "js/audio.js", "js/ai.js", "js/content.js", "js/drills.js", "js/criterios.js", "js/modulos.js", "js/banco2.js", "js/banco3.js", "js/banco3a.js", "js/banco3b.js", "js/banco3c.js", "js/banco3d.js", "js/fallos.js",
   "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png"
 ];
 

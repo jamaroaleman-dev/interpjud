@@ -5,6 +5,7 @@ import { CRITERIOS, evaluateCriterion, generateCriterionSet } from "./ai.js";
 import { makeItem, checkItem, termMatch } from "./drills.js";
 import * as A from "./audio.js";
 import { AUTOQ, oralExtra } from "./banco3.js";
+import { addFallo, removeFallo, getFallos, countFallos, clearFallos } from "./fallos.js";
 
 let C; // contexto de app.js
 let CRIT_HIST, CRIT_SETS;
@@ -24,6 +25,7 @@ export function initModulos(ctx) {
   CRIT_SETS = C.LS.get("critsets", {});
   C.routes.criterios = listPage;
   C.routes.crit = critPage;
+  C.routes.fallos = fallosPage;
 }
 
 function saveCritHist() { CRIT_HIST = CRIT_HIST.slice(-400); C.LS.set("crit", CRIT_HIST); }
@@ -77,6 +79,62 @@ export function bankCount(k) {
 }
 const fmtN = (n) => (n === Infinity ? "∞" : n.toLocaleString("es-DO"));
 
+// ====================== Mis fallos ======================
+function falloLine(f) {
+  if (f.type === "quiz") return `<b>${C.esc(f.q.audio ? "🔊 " + f.q.audio.text : f.q.q)}</b><br><span style="color:var(--good)">✓ ${C.esc(f.q.o[f.q.c])}</span>${f.q.e ? `<br><span class="muted">${C.esc(f.q.e)}</span>` : ""}`;
+  if (f.type === "term") return `<b>${C.esc(f.t)}</b> → <span style="color:var(--good)">${C.esc(f.answers.join(" / "))}</span>`;
+  if (f.type === "num") return `<b>${C.esc(f.t)}</b>`;
+  return `<b>${C.esc(f.t)}</b>${f.ref ? `<br><span style="color:var(--good)">Modelo: ${C.esc(f.ref)}</span>` : ""}${f.problema ? `<br><span style="color:var(--bad)">${C.esc(f.problema)}</span>` : ""}${f.sugerido ? `<br><span style="color:var(--good)">Mejor: ${C.esc(f.sugerido)}</span>` : ""}`;
+}
+function fallosCardHTML(k) {
+  const fs = getFallos(k);
+  if (!fs.length) return `<div class="card"><h2>📌 Mis fallos</h2><p class="muted small" style="margin:0">Aquí se guardan las preguntas y frases que falles en este criterio para que las repases. Salen de la lista cuando las aciertas.</p></div>`;
+  return `<div class="card" style="border-color:var(--bad)"><h2>📌 Mis fallos (${fs.length})</h2>
+    <button class="btn primary block" id="fRev">🔁 Repasar fallos (${Math.min(fs.length, 15)} de ${fs.length})</button>
+    <details style="margin-top:10px"><summary class="small">Ver la lista</summary>${fs.map((f) => `<div class="src small" style="margin-top:8px">${f.veces > 1 ? `<span class="pill bad">×${f.veces}</span> ` : ""}${falloLine(f)} <button class="btn sm ghost" data-del="${C.esc(f.id)}" title="Quitar">✕</button></div>`).join("")}
+    <button class="btn sm ghost" id="fClr" style="margin-top:8px">Borrar todos los fallos de este criterio</button></details></div>`;
+}
+function wireFallosCard(k) {
+  const r = C.$("#fRev"); if (r) r.onclick = () => reviewFallos(k);
+  const c = C.$("#fClr"); if (c) c.onclick = () => { if (confirm("¿Borrar todos los fallos guardados de este criterio?")) { clearFallos(k); C.go(`#crit/${k}:practica`); } };
+  C.view.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => { removeFallo(k, b.dataset.del); b.parentElement.remove(); }));
+}
+async function reviewFallos(k) {
+  C.primeAudio();
+  const fs = getFallos(k).slice(0, 15);
+  if (!fs.length) { C.toast("¡No tienes fallos pendientes en este criterio!"); return C.go(`#crit/${k}:practica`); }
+  const quiz = shuffle(fs.filter((f) => f.type === "quiz")).map((f) => { const idx = shuffle(f.q.o.map((_, i) => i)); return { ...f.q, o: idx.map((i) => f.q.o[i]), c: idx.indexOf(f.q.c) }; });
+  const oral = shuffle(fs.filter((f) => f.type !== "quiz")).map((f) => (f.type === "term" ? { lang: f.lang, t: f.t, answers: f.answers, term: true } : f.type === "num" ? { lang: f.lang, t: f.t, num: f.num } : { lang: f.lang, t: f.t, ref: f.ref, shadow: f.shadow }));
+  let qres = null;
+  if (quiz.length) {
+    qres = await new Promise((r) => runQuiz(k, "mix", false, r, quiz));
+    if (qres === null) return C.go(`#crit/${k}:practica`);
+  }
+  if (oral.length) {
+    if (quiz.length) {
+      const go = await new Promise((r) => {
+        C.view.innerHTML = `<div class="card" style="text-align:center"><h2>Preguntas repasadas: ${qres.pct}%</h2><p class="muted">Ahora ${oral.length} ejercicio(s) hablado(s) que fallaste.</p><button class="btn primary" id="cGo">Continuar ▶</button> <button class="btn ghost" id="cNo">Terminar</button></div>`;
+        C.$("#cGo").onclick = () => { C.primeAudio(); r(true); };
+        C.$("#cNo").onclick = () => r(false);
+      });
+      if (!go) return C.go(`#crit/${k}:practica`);
+    }
+    return runOral(k, "mix", false, null, oral);
+  }
+  C.setTitle("Repaso de fallos");
+  C.view.innerHTML = `<div class="card" style="text-align:center"><div class="big-score" style="color:var(--${C.scoreClass(qres.pct)})">${qres.pct}%</div><p class="muted">Repaso de fallos · ${name(k)}. Los que acertaste salieron de la lista.</p>
+    <div class="row" style="justify-content:center">${countFallos(k) ? `<button class="btn primary" id="again">🔁 Repasar otra vez (${countFallos(k)})</button>` : `<span class="pill good">✓ Sin fallos pendientes</span>`}<button class="btn" data-go="#crit/${k}:practica">Volver al criterio</button></div></div>${reviewHTML(qres.review)}`;
+  const a = C.$("#again"); if (a) a.onclick = () => reviewFallos(k);
+}
+function fallosPage() {
+  C.setTitle("Mis fallos");
+  const total = countFallos();
+  C.view.innerHTML = `<div class="card"><h2>📌 Mis fallos (${total})</h2><p class="muted small" style="margin:0">Todo lo que has fallado, guardado por criterio. Al acertarlo en el repaso, sale de la lista.</p></div>
+    <div class="list">${CRITERIOS.map(([k, nm]) => { const n = countFallos(k); return `<button class="item" data-k="${k}" ${n ? "" : "disabled"}><span style="font-size:22px">${ICONOS[k]}</span><div class="grow"><div class="t">${nm}</div><div class="d">${n ? `${n} por repasar` : "Sin fallos"}</div></div>${n ? `<span class="pill bad">${n}</span><span>🔁</span>` : `<span class="pill good">✓</span>`}</button>`; }).join("")}</div>`;
+  C.view.querySelectorAll(".item[data-k]").forEach((b) => (b.onclick = () => { if (countFallos(b.dataset.k)) reviewFallos(b.dataset.k); }));
+}
+export { countFallos };
+
 // ====================== Lista ======================
 function listPage() {
   C.setTitle("Los 10 criterios");
@@ -86,7 +144,7 @@ function listPage() {
       ${CRITERIOS.map(([k, nm], i) => {
         const l = lastOf(k), b = bestOf(k);
         const bc = bankCount(k);
-        return `<button class="item" data-k="${k}"><span style="font-size:24px">${ICONOS[k]}</span><div class="grow"><div class="t">${i + 1}. ${nm}</div><div class="d">${C.esc(desc(k))}</div><div class="d"><b>${fmtN(bc.total)}</b> ejercicios sin internet</div></div>${l ? `<span class="pill ${C.scoreClass(l.nota100)}" title="Mejor: ${b}">${l.nota100}</span>` : `<span class="pill">nuevo</span>`}</button>`;
+        return `<button class="item" data-k="${k}"><span style="font-size:24px">${ICONOS[k]}</span><div class="grow"><div class="t">${i + 1}. ${nm}</div><div class="d">${C.esc(desc(k))}</div><div class="d"><b>${fmtN(bc.total)}</b> ejercicios sin internet${countFallos(k) ? ` · <span style="color:var(--bad)">📌 ${countFallos(k)} fallos por repasar</span>` : ""}</div></div>${l ? `<span class="pill ${C.scoreClass(l.nota100)}" title="Mejor: ${b}">${l.nota100}</span>` : `<span class="pill">nuevo</span>`}</button>`;
       }).join("")}
     </div>`;
   C.view.querySelectorAll(".item[data-k]").forEach((b) => (b.onclick = () => C.go("#crit/" + b.dataset.k)));
@@ -119,6 +177,7 @@ function critPage(arg) {
   const body = C.$("#cBody");
   if (tab === "practica") {
     body.innerHTML = `
+      ${fallosCardHTML(k)}
       <div class="card"><h2>Guía rápida</h2><ul style="margin:0;padding-left:20px">${GUIAS[k].map((g) => `<li style="margin:4px 0">${C.esc(g)}</li>`).join("")}</ul></div>
       ${referenciaHTML(k)}
       <div class="card"><h2>Ejercicios de práctica</h2><p class="muted small" style="margin-top:0">Con corrección inmediata después de cada respuesta.</p>
@@ -133,6 +192,7 @@ function critPage(arg) {
     const pp = C.$("#pPas"); if (pp) pp.onclick = () => runListening(k, C.S.critDir || "mix", false);
     const o = C.$("#pOral"); if (o) o.onclick = () => runOral(k, C.S.critDir || "mix", false);
     const g = C.$("#pGen"); if (g) g.onclick = () => genMore(k);
+    wireFallosCard(k);
     body.querySelectorAll("[data-say]").forEach((b) => (b.onclick = () => { A.stopSpeaking(); A.speak(b.dataset.say, b.dataset.lang, { rate: C.rateOf(b.dataset.lang), voiceName: C.voiceOf(b.dataset.lang) }); }));
   } else {
     const parts = [];
@@ -242,21 +302,23 @@ function oralPool(k, dir, n) {
 }
 
 // ====================== Quiz ======================
-async function runQuiz(k, dir, exam, onDone) {
+const quizEntry = (q) => ({ type: "quiz", q: { d: q.d, k: q.k, q: q.q, o: q.o, c: q.c, e: q.e, audio: q.audio } });
+async function runQuiz(k, dir, exam, onDone, override) {
   const m = MODO[k];
-  if (m.quiz === "pasajes") return runListening(k, dir, exam, onDone);
-  const qs = quizPool(k, dir, exam ? 10 : m.quiz === "auditivo" ? 8 : 10);
+  if (m.quiz === "pasajes" && !override) return runListening(k, dir, exam, onDone);
+  const qs = override || quizPool(k, dir, exam ? 10 : m.quiz === "auditivo" ? 8 : 10);
   if (!qs.length) { C.toast("No hay preguntas para esa dirección todavía. Genera material nuevo con Claude."); return onDone?.(null); }
   const answers = [];
   for (let i = 0; i < qs.length; i++) {
     const q = qs[i];
-    const choice = await askQuestion(q, i, qs.length, exam, `${name(k)} · ${exam ? "Evaluación" : "Práctica"}`);
+    const choice = await askQuestion(q, i, qs.length, exam, `${name(k)} · ${override ? "Repaso de fallos" : exam ? "Evaluación" : "Práctica"}`);
     if (choice === "quit") return onDone ? onDone(null) : C.go(`#crit/${k}`);
     answers.push(choice);
+    if (choice === q.c) removeFallo(k, quizEntry(q)); else addFallo(k, quizEntry(q));
   }
   let ok = answers.filter((a, i) => a === qs[i].c).length;
   let review = qs.map((q, i) => ({ q, a: answers[i] }));
-  if (exam && m.quiz === "auditivo") {
+  if (exam && m.quiz === "auditivo" && !override) {
     // La evaluación de comprensión añade un pasaje largo.
     const pas = await new Promise((r) => runListening(k, dir, true, r, 1));
     if (pas === null) return onDone ? onDone(null) : C.go(`#crit/${k}`);
@@ -317,6 +379,8 @@ function showQuizReview(k, pct, review, exam) {
       <div class="row" style="justify-content:center"><button class="btn primary" id="again">↺ Otro quiz</button><button class="btn" data-go="#crit/${k}">Volver al criterio</button></div></div>
     ${reviewHTML(review)}`;
   C.$("#again").onclick = () => runQuiz(k, C.S.critDir || "mix", false);
+  if (countFallos(k)) C.view.querySelector(".card .row").insertAdjacentHTML("beforeend", `<button class="btn" id="revF">🔁 Repasar fallos (${countFallos(k)})</button>`);
+  const rv = C.$("#revF"); if (rv) rv.onclick = () => reviewFallos(k);
 }
 
 function reviewHTML(review) {
@@ -407,7 +471,8 @@ function pronNota(acc, conf) {
   return n;
 }
 
-async function runOral(k, dir, exam, onDone) {
+const oralEntry = (it) => (it.term ? { type: "term", lang: it.lang, t: it.t, answers: it.answers, term: true } : it.num ? { type: "num", lang: it.lang, t: it.t, num: it.num } : { type: "oral", lang: it.lang, t: it.t, ref: it.ref, shadow: it.shadow });
+async function runOral(k, dir, exam, onDone, override) {
   const m = MODO[k];
   try { await C.ensureMic(); } catch (e) { C.toast(e.message, 6000); return onDone?.(null); }
   const sess = new C.Session();
@@ -426,7 +491,8 @@ async function runOral(k, dir, exam, onDone) {
 
   // Construir ítems
   let items = [];
-  if (m.oral === "interp") items = oralPool(k, dir, exam ? 5 : 5).map((o) => ({ ...o }));
+  if (override) items = override.map((o) => ({ ...o }));
+  else if (m.oral === "interp") items = oralPool(k, dir, exam ? 5 : 5).map((o) => ({ ...o }));
   else if (m.oral === "shadow") items = oralPool(k, dir, exam ? 8 : 6).map((o) => ({ ...o, shadow: true }));
   else if (m.oral === "numeros") items = Array.from({ length: exam ? 8 : 6 }, (_, i) => { const it = makeItem(pickDir(dir, i)); return { lang: it.lang, t: it.text, num: it }; });
   else if (m.oral === "terminos") {
@@ -456,6 +522,9 @@ async function runOral(k, dir, exam, onDone) {
     if (it.num) { const c = checkItem(it.num, res.transcript); rec.nota = c.total ? Math.round((c.okCount / c.total) * 5 * 10) / 10 : 0; rec.checks = c.checks; }
     if (it.term) { const r = termMatch(res.transcript, it.answers); rec.nota = r.ok ? 5 : 0; rec.ok = r.ok; }
     done.push(rec);
+    // Mis fallos: guardar lo que salió mal; quitar lo que ya sale bien.
+    const good = it.shadow ? rec.nota >= 4 : it.num ? rec.nota >= 5 : it.term ? rec.ok : null;
+    if (good === true) removeFallo(k, oralEntry(it)); else if (good === false) addFallo(k, oralEntry(it));
     if (!exam) {
       // Corrección inmediata
       if (it.shadow) { ui.state(`${rec.nota >= 4 ? "✅" : "⚠"} Claridad ${Math.round(rec.acc * 100)}% · ${rec.nota}/5`); ui.src(`<div class="src">${rec.diffHTML}</div><p class="muted small">En rojo: palabras que el reconocimiento no entendió. Tú dijiste: «${C.esc(res.transcript || "(nada)")}»</p>`); }
@@ -475,14 +544,21 @@ async function runOral(k, dir, exam, onDone) {
             const ev = await evaluateCriterion({ settings: C.S, criterio: k, items: [rec] });
             const x = ev.items?.[0] || { nota: ev.nota };
             rec.nota = x.nota;
+            if (x.nota >= 4) removeFallo(k, oralEntry(it)); else addFallo(k, { ...oralEntry(it), nota: x.nota, problema: x.problema, sugerido: x.sugerido });
             ui.state(`${x.nota >= 5 ? "✅" : x.nota >= 4 ? "🟡" : "❌"} ${name(k)}: ${x.nota}/5`);
             ui.src(`<div class="src small"><b>Original:</b> ${C.esc(it.t)}<br><b>Tu versión:</b> ${C.esc(res.transcript)}</div>${metr}${x.problema ? `<div class="err">${C.esc(x.problema)}</div>` : `<div class="ok">Sin problemas en este criterio.</div>`}${x.sugerido ? `<div class="ok"><b>Mejor:</b> ${C.esc(x.sugerido)}</div>` : ""}`);
           } catch (e) { ui.state("Sin corrección"); ui.src(C.$("#sSrc").innerHTML + `<div class="err">${C.esc(e.message)}</div>`); }
         } else ui.state(res.transcript ? (it.ref ? "Compara tu versión con la versión modelo" : "Compara tu versión con el original") : "⚠ No se captó voz");
       }
       ui.live(null);
-      ui.ctl(`<button class="btn" id="oRep">🔊 Original</button><button class="btn primary" id="oNext">Siguiente ▶</button>`);
+      const saved = getFallos(k).some((f) => f.t === it.t);
+      ui.ctl(`<button class="btn" id="oRep">🔊 Original</button>${it.term || it.num ? "" : `<button class="btn" id="oSave">${saved ? "✓ En mis fallos" : "📌 Guardar en mis fallos"}</button>`}<button class="btn primary" id="oNext">Siguiente ▶</button>`);
       C.$("#oRep").onclick = () => { A.stopSpeaking(); A.speak(it.t, it.lang, { rate: C.rateOf(it.lang), voiceName: C.voiceOf(it.lang) }); };
+      const sv = C.$("#oSave");
+      if (sv) sv.onclick = () => {
+        if (getFallos(k).some((f) => f.t === it.t)) { removeFallo(k, oralEntry(it)); sv.textContent = "📌 Guardar en mis fallos"; }
+        else { addFallo(k, { ...oralEntry(it), transcripcion: rec.transcripcion }); sv.textContent = "✓ En mis fallos (toca para quitar)"; }
+      };
       await new Promise((r) => { C.$("#oNext").onclick = r; sess.waiters.push(r); });
     } else {
       ui.state(res.transcript ? "✓ Registrado" : "⚠ No se captó voz");
@@ -502,7 +578,8 @@ async function runOral(k, dir, exam, onDone) {
   C.setTitle("Resultado");
   C.view.innerHTML = `<div class="card" style="text-align:center">${n5 != null ? `<div class="big-score" style="color:var(--${C.scoreClass(n100(n5))})">${n5.toFixed(1)}/5</div>` : ""}<p class="muted">${name(k)} · práctica oral (${done.length} ítems)</p>
     <div class="row" style="justify-content:center"><button class="btn primary" id="again">↺ Otra práctica</button><button class="btn" data-go="#crit/${k}">Volver al criterio</button></div></div>`;
-  C.$("#again").onclick = () => runOral(k, C.S.critDir || "mix", false);
+  C.$("#again").onclick = () => (override ? reviewFallos(k) : runOral(k, C.S.critDir || "mix", false));
+  if (override) { C.$("#again").textContent = countFallos(k) ? `🔁 Repasar fallos otra vez (${countFallos(k)})` : "✓ Sin fallos pendientes"; C.$("#again").disabled = !countFallos(k); }
 }
 
 // ====================== Evaluación completa de un criterio ======================
